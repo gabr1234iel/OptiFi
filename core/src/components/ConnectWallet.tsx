@@ -36,6 +36,7 @@ const ConnectWallet: React.FC = () => {
             className="network-select"
           >
             <option value="0x1">Ethereum</option>
+            <option value="0x7a69">Anvil Local</option>
             <option value="0x89">Polygon</option>
             <option value="0xa4b1">Arbitrum</option>
             <option value="0xa">Optimism</option>

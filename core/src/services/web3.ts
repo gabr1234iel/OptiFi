@@ -7,6 +7,16 @@ declare global {
   }
 }
 
+// Network names mapping
+const NETWORK_NAMES: Record<number, string> = {
+  1: 'Ethereum Mainnet',
+  31337: 'Anvil Local', // Add Anvil
+  137: 'Polygon',
+  42161: 'Arbitrum',
+  10: 'Optimism',
+  8453: 'Base'
+};
+
 export const getProvider = () => {
   if (typeof window !== 'undefined' && window.ethereum) {
     return new ethers.providers.Web3Provider(window.ethereum);
@@ -36,7 +46,7 @@ export const connectWallet = async () => {
       address,
       balance: ethers.utils.formatEther(balance),
       chainId: network.chainId,
-      network: network.name
+      network: NETWORK_NAMES[network.chainId] || network.name
     };
   } catch (error) {
     console.error('Error connecting to wallet:', error);
