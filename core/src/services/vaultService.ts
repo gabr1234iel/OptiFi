@@ -6,9 +6,9 @@ const AaveVaultABI = [{"type":"constructor","inputs":[{"name":"_aavePool","type"
 
 // Contract addresses - Update these after deployment
 const VAULT_ADDRESSES = {
-  'low-risk': '0x081F08945fd17C5470f7bCee23FB57aB1099428E', // Your deployed AaveVault address
-  'medium-risk': '0x081F08945fd17C5470f7bCee23FB57aB1099428E', // For now using the same contract
-  'high-risk': '0xC63db9682Ff11707CADbD72bf1A0354a7feF143B'  // For now using the same contract
+  'low-risk': '0x98F74b7C96497070ba5052E02832EF9892962e62', // Your deployed AaveVault address
+  'medium-risk': '0x98F74b7C96497070ba5052E02832EF9892962e62', // For now using the same contract
+  'high-risk': '0x98F74b7C96497070ba5052E02832EF9892962e62'  // For now using the same contract
 };
 
 // Token addresses
