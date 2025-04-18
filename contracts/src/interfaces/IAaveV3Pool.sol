@@ -2,10 +2,10 @@
 pragma solidity ^0.8.19;
 
 /**
- * @title IAavePool
+ * @title IAaveV3Pool
  * @dev Interface for the Aave V3 Pool contract
  */
-interface IAavePool {
+interface IAaveV3Pool {
     /**
      * @dev Supplies an `amount` of underlying asset into the reserve, receiving in return overlying aTokens.
      * - E.g. User supplies 100 USDC and gets in return 100 aUSDC

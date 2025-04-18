@@ -4,18 +4,22 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IAave.sol";
+import "./interfaces/IAaveV2Pool.sol";
+import "./interfaces/IAaveV3Pool.sol";
 
 /**
  * @title AaveVault
- * @notice A simple vault that deposits funds into Aave V3 to generate yield
+ * @notice A simple vault that deposits funds into Aave V2 or V3 to generate yield
  */
 contract AaveVault is Ownable {
     using SafeERC20 for IERC20;
 
     // Aave Pool address
     address public immutable aavePool;
-
+    
+    // Aave version
+    bool public immutable isV3;
+    
     // Token address => aToken address mapping
     mapping(address => address) public aTokens;
     
@@ -32,11 +36,13 @@ contract AaveVault is Ownable {
 
     /**
      * @dev Constructor
-     * @param _aavePool Address of the Aave V3 Pool contract
+     * @param _aavePool Address of the Aave Pool contract
+     * @param _isV3 Whether this is Aave V3 or V2
      */
-    constructor(address _aavePool) Ownable(msg.sender) {
+    constructor(address _aavePool, bool _isV3) Ownable(msg.sender) {
         require(_aavePool != address(0), "Invalid Aave Pool address");
         aavePool = _aavePool;
+        isV3 = _isV3;
     }
 
     /**
@@ -61,13 +67,17 @@ contract AaveVault is Ownable {
         require(amount > 0, "Amount must be greater than 0");
         
         // Transfer tokens from user to vault
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         
         // Approve Aave to use the tokens
         IERC20(token).approve(aavePool, amount);
         
-        // Deposit to Aave
-        IAavePool(aavePool).supply(token, amount, address(this), 0);
+        // Deposit to Aave based on version
+        if (isV3) {
+            IAaveV3Pool(aavePool).supply(token, amount, address(this), 0);
+        } else {
+            IAaveV2Pool(aavePool).deposit(token, amount, address(this), 0);
+        }
         
         // Update user deposit
         userDeposits[msg.sender][token] += amount;
@@ -89,7 +99,7 @@ contract AaveVault is Ownable {
         require(userDeposits[msg.sender][token] >= amount, "Insufficient balance");
         
         // Withdraw from Aave
-        uint256 withdrawn = IAavePool(aavePool).withdraw(token, amount, address(this));
+        uint256 withdrawn = IAaveV3Pool(aavePool).withdraw(token, amount, address(this));
         
         // Update user deposit
         userDeposits[msg.sender][token] -= amount;
@@ -125,7 +135,7 @@ contract AaveVault is Ownable {
         uint256 userAmount = (totalBalance * userShare) / 1e18;
         
         // Withdraw from Aave
-        uint256 withdrawn = IAavePool(aavePool).withdraw(token, userAmount, address(this));
+        uint256 withdrawn = IAaveV3Pool(aavePool).withdraw(token, userAmount, address(this));
         
         // Update user deposit
         userDeposits[msg.sender][token] = 0;
@@ -152,7 +162,7 @@ contract AaveVault is Ownable {
         uint256 totalATokenBalance = IERC20(aToken).balanceOf(address(this));
         
         // Convert aToken balance to underlying token amount
-        uint256 totalUnderlyingBalance = totalATokenBalance; // 1:1 ratio in Aave v3
+        uint256 totalUnderlyingBalance = totalATokenBalance; // 1:1 ratio in Aave v2/v3
         
         // Calculate yield
         uint256 yieldAmount = 0;
@@ -197,7 +207,12 @@ contract AaveVault is Ownable {
     function getCurrentAPY(address token) external view returns (uint256) {
         require(aTokens[token] != address(0), "Token not supported");
         
-        DataTypes.ReserveData memory data = IAavePool(aavePool).getReserveData(token);
-        return data.currentLiquidityRate;
+        if (isV3) {
+            DataTypes.ReserveData memory data = IAaveV3Pool(aavePool).getReserveData(token);
+            return data.currentLiquidityRate;
+        } else {
+            IAaveV2Pool.ReserveData memory data = IAaveV2Pool(aavePool).getReserveData(token);
+            return data.currentLiquidityRate;
+        }
     }
 }

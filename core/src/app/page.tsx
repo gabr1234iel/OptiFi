@@ -1,5 +1,6 @@
 "use client";
 import React from 'react';
+import Link from 'next/link';
 import Header from '../components/Header';
 import RiskVault from '../components/RiskVault';
 import { vaultData } from '../constants/mockData';
@@ -11,6 +12,16 @@ export default function Home() {
       <Header />
       
       <main className="container mx-auto px-4 py-8 flex-grow">
+        <div className="mb-8 bg-blue-100 p-4 rounded-lg border border-blue-300">
+          <h3 className="text-lg font-bold text-blue-800 mb-2">🚀 New Feature</h3>
+          <p className="text-blue-700 mb-2">
+            Try our new Optimized Vault with multi-token support and direct swaps!
+          </p>
+          <Link href="/optimized" className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+            Go to Optimized Vaults
+          </Link>
+        </div>
+        
         <div className="portfolio-section">
           <h2 className="text-2xl font-bold mb-6 text-black">Your Yield Portfolio</h2>
           
