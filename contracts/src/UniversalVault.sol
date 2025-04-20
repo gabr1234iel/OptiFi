@@ -1,605 +1,257 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IAaveV2Pool.sol";
-import "./interfaces/IAaveV3Pool.sol";
-import "./interfaces/IMorphoBlue.sol";
-import "./interfaces/ISwapRouter.sol";
-import "./AaveVault.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IProtocolAdapter} from "./interfaces/IProtocolAdapter.sol";
 
 /**
  * @title UniversalVault
- * @notice A vault that can deposit into different protocols (Aave, Morpho Blue) with token swapping capability
+ * @notice A vault that can deposit funds into different DeFi protocols
  */
-contract UniversalVault is Ownable {
+contract UniversalVault is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
-
-    // Uniswap Universal Router
-    address public immutable swapRouter;
     
-    // Aave Vault v2 and v3 contracts
-    AaveVault public immutable aaveVaultV2;
-    AaveVault public immutable aaveVaultV3;
+    // Mapping of token => adapter
+    mapping(address => IProtocolAdapter) public tokenAdapters;
     
-    // Morpho Blue main contract
-    address public immutable morphoBlue;
+    // User balances: user => token => amount
+    mapping(address => mapping(address => uint256)) public userBalances;
     
-    // Protocol identifiers
-    enum Protocol { AAVE_V2, AAVE_V3, MORPHO_BLUE }
-    
-    // Pool information mapping
-    struct PoolInfo {
-        address poolAddress;
-        address underlyingToken;
-        bytes4 depositFunction;
-        bytes4 withdrawFunction;
-        Protocol protocol;
-        // Morpho specific parameters
-        address loanToken;
-        address collateralToken;
-        address oracle;
-        address irm;
-        uint256 lltv;
-    }
-    
-    // Mapping from pool name to pool info
-    mapping(string => PoolInfo) public pools;
-    
-    // Array of supported pool names
-    string[] public poolNames;
+    // Total vault balances: token => amount
+    mapping(address => uint256) public vaultBalances;
     
     // Events
-    event PoolAdded(string name, address poolAddress, address underlyingToken, Protocol protocol);
-    event Deposited(string poolName, address token, uint256 amount, address user);
-    event Withdrawn(string poolName, address token, uint256 amount, address user);
-    event TokenSwapped(address fromToken, address toToken, uint256 amountIn, uint256 amountOut);
-    event DebugInfo(string poolName, address poolAddress, address token, uint256 amount);
-
-     /**
+    event AdapterSet(address indexed token, address indexed adapter);
+    event Deposited(address indexed user, address indexed token, uint256 amount);
+    event Withdrawn(address indexed user, address indexed token, uint256 amount);
+    event ProtocolDeposit(address indexed token, address indexed adapter, uint256 amount);
+    event ProtocolWithdraw(address indexed token, address indexed adapter, uint256 amount);
+    
+    /**
      * @dev Constructor
-     * @param _swapRouter Address of the Uniswap Universal Router
-     * @param _aaveVaultV2 Address of the AaveVault V2 contract
-     * @param _aaveVaultV3 Address of the AaveVault V3 contract
-     * @param _morphoBlue Address of the Morpho Blue contract
      */
-    constructor(
-        address _swapRouter, 
-        address _aaveVaultV2,
-        address _aaveVaultV3,
-        address _morphoBlue
-    ) Ownable(msg.sender) {
-        require(_swapRouter != address(0), "Invalid swap router address");
-        require(_aaveVaultV2 != address(0), "Invalid Aave V2 vault address");
-        require(_aaveVaultV3 != address(0), "Invalid Aave V3 vault address");
-        require(_morphoBlue != address(0), "Invalid Morpho Blue address");
-        
-        swapRouter = _swapRouter;
-        aaveVaultV2 = AaveVault(_aaveVaultV2);
-        aaveVaultV3 = AaveVault(_aaveVaultV3);
-        morphoBlue = _morphoBlue;
-    }
-
+    constructor() Ownable(msg.sender) {}
+    
     /**
-     * @dev Add a new pool for Aave
-     * @param name Name of the pool
-     * @param poolAddress Address of the pool contract
-     * @param underlyingToken Address of the underlying token
-     * @param depositFunctionSig Deposit function signature
-     * @param withdrawFunctionSig Withdraw function signature
-     * @param protocol Protocol identifier (AAVE_V2 or AAVE_V3)
+     * @notice Set the adapter for a token
+     * @param token The token address
+     * @param adapter The adapter address
      */
-    function addAavePool(
-        string memory name,
-        address poolAddress,
-        address underlyingToken,
-        bytes4 depositFunctionSig,
-        bytes4 withdrawFunctionSig,
-        Protocol protocol
-    ) external onlyOwner {
-        require(bytes(name).length > 0, "Name cannot be empty");
-        require(poolAddress != address(0), "Invalid pool address");
-        require(underlyingToken != address(0), "Invalid token address");
-        require(protocol == Protocol.AAVE_V2 || protocol == Protocol.AAVE_V3, "Invalid protocol for Aave");
+    function setAdapter(address token, address adapter) external onlyOwner {
+        require(token != address(0), "UniversalVault: token cannot be zero address");
+        require(adapter != address(0), "UniversalVault: adapter cannot be zero address");
         
-        pools[name] = PoolInfo({
-            poolAddress: poolAddress,
-            underlyingToken: underlyingToken,
-            depositFunction: depositFunctionSig,
-            withdrawFunction: withdrawFunctionSig,
-            protocol: protocol,
-            loanToken: address(0),    // Not used for Aave
-            collateralToken: address(0),
-            oracle: address(0),
-            irm: address(0),
-            lltv: 0
-        });
-        
-        poolNames.push(name);
-        
-        emit PoolAdded(name, poolAddress, underlyingToken, protocol);
-    }
-
-    /**
-     * @dev Add a new pool for Morpho Blue
-     * @param name Name of the pool
-     * @param morphoMarketParams Morpho Blue market parameters
-     * @param underlyingToken Address of the underlying token
-     */
-    function addMorphoBluePool(
-        string memory name,
-        IMorphoBlue.MarketParams memory morphoMarketParams,
-        address underlyingToken
-    ) external onlyOwner {
-        require(bytes(name).length > 0, "Name cannot be empty");
-        require(morphoMarketParams.loanToken != address(0), "Invalid loan token");
-        require(underlyingToken != address(0), "Invalid token address");
-        
-        pools[name] = PoolInfo({
-            poolAddress: morphoBlue,  // Morpho Blue contract is always the same
-            underlyingToken: underlyingToken,
-            depositFunction: bytes4(0),  // Not used for Morpho
-            withdrawFunction: bytes4(0), // Not used for Morpho
-            protocol: Protocol.MORPHO_BLUE,
-            loanToken: morphoMarketParams.loanToken,
-            collateralToken: morphoMarketParams.collateralToken,
-            oracle: morphoMarketParams.oracle,
-            irm: morphoMarketParams.irm,
-            lltv: morphoMarketParams.lltv
-        });
-        
-        poolNames.push(name);
-        
-        emit PoolAdded(name, morphoBlue, underlyingToken, Protocol.MORPHO_BLUE);
-    }
-
-    /**
-     * @dev Get all pool names
-     * @return Array of pool names
-     */
-    function getAllPoolNames() external view returns (string[] memory) {
-        return poolNames;
-    }
-
-    /**
-     * @dev Get Morpho Blue market params for a pool
-     * @param poolName Name of the pool
-     * @return Market parameters for Morpho Blue
-     */
-    function getMorphoMarketParams(string memory poolName) public view returns (IMorphoBlue.MarketParams memory) {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.protocol == Protocol.MORPHO_BLUE, "Not a Morpho Blue pool");
-        
-        return IMorphoBlue.MarketParams({
-            loanToken: poolInfo.loanToken,
-            collateralToken: poolInfo.collateralToken,
-            oracle: poolInfo.oracle,
-            irm: poolInfo.irm,
-            lltv: poolInfo.lltv
-        });
-    }
-
-    /**
-     * @dev Swap tokens using Uniswap Universal Router
-     * @param fromToken Source token address
-     * @param toToken Destination token address
-     * @param amountIn Amount of source tokens to swap
-     * @param minAmountOut Minimum amount of destination tokens to receive
-     * @param deadline Swap deadline timestamp
-     * @return amountOut Amount of destination tokens received
-     */
-    function swapTokens(
-        address fromToken,
-        address toToken,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 deadline
-    ) public returns (uint256 amountOut) {
-        require(fromToken != address(0), "Invalid source token");
-        require(toToken != address(0), "Invalid destination token");
-        require(amountIn > 0, "Amount must be greater than 0");
-        
-        // Transfer tokens from user
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-        
-        // Approve the router to use the tokens
-        IERC20(fromToken).approve(swapRouter, amountIn);
-        
-        // Prepare the swap params
-        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: fromToken,
-            tokenOut: toToken,
-            fee: 3000, // 0.3% fee tier
-            recipient: address(this),
-            deadline: deadline,
-            amountIn: amountIn,
-            amountOutMinimum: minAmountOut,
-            sqrtPriceLimitX96: 0
-        });
-        
-        // Execute the swap
-        amountOut = ISwapRouter(swapRouter).exactInputSingle(params);
-        
-        emit TokenSwapped(fromToken, toToken, amountIn, amountOut);
-        
-        return amountOut;
-    }
-
-    /**
-     * @dev Swap tokens via multiple pools using Uniswap Universal Router
-     * @param path Encoded swap path
-     * @param amountIn Amount of source tokens to swap
-     * @param minAmountOut Minimum amount of destination tokens to receive
-     * @param deadline Swap deadline timestamp
-     * @return amountOut Amount of destination tokens received
-     */
-    function swapTokensMultihop(
-        bytes memory path,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 deadline
-    ) public returns (uint256 amountOut) {
-        require(path.length >= 40, "Invalid path"); // At least one hop (20 bytes + 20 bytes + fee)
-        
-        // Extract the first token from the path
-        address fromToken;
-        assembly {
-            fromToken := mload(add(path, 20))
+        // If we're changing adapters, withdraw from old adapter first
+        if (address(tokenAdapters[token]) != address(0)) {
+            uint256 adapterBalance = tokenAdapters[token].getBalance(token);
+            if (adapterBalance > 0) {
+                tokenAdapters[token].withdraw(token);
+            }
         }
         
-        require(fromToken != address(0), "Invalid source token");
-        require(amountIn > 0, "Amount must be greater than 0");
+        tokenAdapters[token] = IProtocolAdapter(adapter);
         
-        // Transfer tokens from user
-        IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);
-        
-        // Approve the router to use the tokens
-        IERC20(fromToken).approve(swapRouter, amountIn);
-        
-        // Prepare the swap params
-        ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
-            path: path,
-            recipient: address(this),
-            deadline: deadline,
-            amountIn: amountIn,
-            amountOutMinimum: minAmountOut
-        });
-        
-        // Execute the swap
-        amountOut = ISwapRouter(swapRouter).exactInput(params);
-        
-        // Extract the last token from the path
-        address toToken;
-        assembly {
-            toToken := mload(add(path, sub(mload(path), 20)))
-        }
-        
-        emit TokenSwapped(fromToken, toToken, amountIn, amountOut);
-        
-        return amountOut;
+        emit AdapterSet(token, adapter);
     }
-
+    
     /**
-     * @dev Deposit into an Aave pool
-     * @param token Token address
-     * @param amount Amount to deposit
-     * @param aaveVersion Aave version (0 for V2, 1 for V3)
+     * @notice User deposits tokens into the vault
+     * @param token The token address
+     * @param amount The amount to deposit
      */
-    function depositToAave(address token, uint256 amount, uint8 aaveVersion) external {
-        require(token != address(0), "Invalid token address");
-        require(amount > 0, "Amount must be greater than 0");
+    function deposit(address token, uint256 amount) external nonReentrant {
+        require(amount > 0, "UniversalVault: amount must be greater than 0");
         
-        // Select the appropriate AaveVault
-        AaveVault aaveVault = aaveVersion == 0 ? aaveVaultV2 : aaveVaultV3;
-        
-        // Check if token is supported in the selected AaveVault
-        address aToken = aaveVault.aTokens(token);
-        require(aToken != address(0), "Token not supported in AaveVault");
-        
-        // Transfer tokens from user to this contract
+        // Transfer tokens from user to vault
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         
-        // Approve AaveVault to use the tokens
-        IERC20(token).approve(address(aaveVault), amount);
+        // Update balances
+        userBalances[msg.sender][token] += amount;
+        vaultBalances[token] += amount;
         
-        // Deposit to AaveVault
-        try aaveVault.deposit(token, amount) {
-            emit Deposited(aaveVersion == 0 ? "aave_v2" : "aave_v3", token, amount, msg.sender);
-        } catch Error(string memory reason) {
-            revert(string(abi.encodePacked("AaveVault deposit failed: ", reason)));
+        emit Deposited(msg.sender, token, amount);
+        
+        // If there's an adapter for this token, deposit to protocol
+        if (address(tokenAdapters[token]) != address(0)) {
+            _depositToProtocol(token, amount);
         }
     }
-
+    
     /**
-     * @dev Withdraw from an Aave pool
-     * @param token Token address
-     * @param amount Amount to withdraw
-     * @param aaveVersion Aave version (0 for V2, 1 for V3)
+     * @notice User withdraws tokens from the vault
+     * @param token The token address
+     * @param amount The amount to withdraw
      */
-    function withdrawFromAave(address token, uint256 amount, uint8 aaveVersion) external {
-        require(token != address(0), "Invalid token address");
-        require(amount > 0, "Amount must be greater than 0");
+    function withdraw(address token, uint256 amount) external nonReentrant {
+        require(amount > 0, "UniversalVault: amount must be greater than 0");
+        require(userBalances[msg.sender][token] >= amount, "UniversalVault: insufficient balance");
         
-        // Select the appropriate AaveVault
-        AaveVault aaveVault = aaveVersion == 0 ? aaveVaultV2 : aaveVaultV3;
+        // Update balances
+        userBalances[msg.sender][token] -= amount;
+        vaultBalances[token] -= amount;
         
-        // Withdraw from AaveVault
-        aaveVault.withdraw(token, amount);
+        // If there's an adapter for this token, we might need to withdraw from protocol
+        if (address(tokenAdapters[token]) != address(0)) {
+            uint256 vaultTokenBalance = IERC20(token).balanceOf(address(this));
+            
+            if (vaultTokenBalance < amount) {
+                // Need to withdraw from protocol
+                _withdrawFromProtocol(token, amount - vaultTokenBalance);
+            }
+        }
         
         // Transfer tokens to user
         IERC20(token).safeTransfer(msg.sender, amount);
         
-        emit Withdrawn(aaveVersion == 0 ? "aave_v2" : "aave_v3", token, amount, msg.sender);
+        emit Withdrawn(msg.sender, token, amount);
     }
-
+    
     /**
-     * @dev Deposit into a specific pool by name
-     * @param poolName Name of the pool
-     * @param amount Amount to deposit
+     * @notice Get the APY for a token across all protocols
+     * @param token The token address
+     * @return The APY in basis points (1% = 100)
      */
-    function depositToPool(string memory poolName, uint256 amount) external {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
-        require(amount > 0, "Amount must be greater than 0");
-        
-        address token = poolInfo.underlyingToken;
-        
-        // Transfer tokens from user to this contract
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        
-        // Route the deposit based on protocol
-        if (poolInfo.protocol == Protocol.AAVE_V2) {
-            // Deposit to Aave V2
-            IERC20(token).approve(address(aaveVaultV2), amount);
-            try aaveVaultV2.deposit(token, amount) {
-                emit Deposited(poolName, token, amount, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV2 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.AAVE_V3) {
-            // Deposit to Aave V3
-            IERC20(token).approve(address(aaveVaultV3), amount);
-            try aaveVaultV3.deposit(token, amount) {
-                emit Deposited(poolName, token, amount, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV3 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.MORPHO_BLUE) {
-            // Deposit to Morpho Blue
-            depositToMorphoBlue(poolName, amount);
+    function getAPY(address token) external view returns (uint256) {
+        if (address(tokenAdapters[token]) != address(0)) {
+            return tokenAdapters[token].getAPY(token);
         }
+        return 0;
     }
-
+    
     /**
-     * @dev Deposit into a Morpho Blue pool
-     * @param poolName Name of the pool
-     * @param amount Amount to deposit
+     * @notice Get user balance for a specific token
+     * @param user The user address
+     * @param token The token address
+     * @return The user's balance
      */
-    function depositToMorphoBlue(string memory poolName, uint256 amount) public {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
-        require(poolInfo.protocol == Protocol.MORPHO_BLUE, "Not a Morpho Blue pool");
-        require(amount > 0, "Amount must be greater than 0");
+    function getUserBalance(address user, address token) external view returns (uint256) {
+        return userBalances[user][token];
+    }
+    
+    /**
+     * @notice Get the total balance for a token (including protocol deposits)
+     * @param token The token address
+     * @return The total balance
+     */
+    function getTotalBalance(address token) external view returns (uint256) {
+        uint256 vaultTokenBalance = IERC20(token).balanceOf(address(this));
         
-        address token = poolInfo.underlyingToken;
-        
-        // Add debug info
-        emit DebugInfo(poolName, poolInfo.poolAddress, token, amount);
-        
-        // If called directly from external, transfer tokens
-        if (msg.sender != address(this)) {
-            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        if (address(tokenAdapters[token]) != address(0)) {
+            vaultTokenBalance += tokenAdapters[token].getBalance(token);
         }
         
-        // Approve Morpho Blue to use the tokens
-        IERC20(token).approve(morphoBlue, amount);
+        return vaultTokenBalance;
+    }
+    
+    /**
+     * @notice Rebalance a token to the adapter with the highest APY
+     * @param token The token address
+     * @param newAdapter The address of the new adapter with higher APY
+     */
+    function rebalance(address token, address newAdapter) external onlyOwner {
+        require(token != address(0), "UniversalVault: token cannot be zero address");
+        require(newAdapter != address(0), "UniversalVault: adapter cannot be zero address");
+        require(newAdapter != address(tokenAdapters[token]), "UniversalVault: already using this adapter");
         
-        // Get the market params for Morpho Blue
-        IMorphoBlue.MarketParams memory marketParams = getMorphoMarketParams(poolName);
+        // Withdraw from current adapter
+        if (address(tokenAdapters[token]) != address(0)) {
+            uint256 adapterBalance = tokenAdapters[token].getBalance(token);
+            if (adapterBalance > 0) {
+                tokenAdapters[token].withdraw(token);
+            }
+        }
         
-        // Call the deposit function based on token type
-        if (token == marketParams.loanToken) {
-            // Loan token deposit (supply)
-            try IMorphoBlue(morphoBlue).supply(
-                marketParams,
-                amount,    // assets
-                0,         // shares (0 means use assets)
-                address(this),  // onBehalf
-                ""         // data
-            ) returns (uint256 assetsSupplied, uint256 sharesSupplied) {
-                emit Deposited(poolName, token, assetsSupplied, msg.sender != address(this) ? msg.sender : address(this));
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("Morpho supply failed: ", reason)));
-            } catch {
-                revert("Morpho supply failed");
-            }
-        } else if (token == marketParams.collateralToken) {
-            // Collateral token deposit
-            try IMorphoBlue(morphoBlue).supplyCollateral(
-                marketParams,
-                amount,    // assets
-                address(this),  // onBehalf
-                ""         // data
-            ) {
-                emit Deposited(poolName, token, amount, msg.sender != address(this) ? msg.sender : address(this));
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("Morpho supplyCollateral failed: ", reason)));
-            } catch {
-                revert("Morpho supplyCollateral failed");
-            }
-        } else {
-            revert("Token not matching loan or collateral token");
+        // Set new adapter
+        tokenAdapters[token] = IProtocolAdapter(newAdapter);
+        
+        emit AdapterSet(token, newAdapter);
+        
+        // Deposit to new adapter
+        uint256 vaultTokenBalance = IERC20(token).balanceOf(address(this));
+        if (vaultTokenBalance > 0) {
+            _depositToProtocol(token, vaultTokenBalance);
         }
     }
-
+    
     /**
-     * @dev Withdraw from a specific pool by name
-     * @param poolName Name of the pool
-     * @param amount Amount to withdraw
+     * @notice Deposit tokens to protocol through adapter
+     * @param token The token address
+     * @param amount The amount to deposit
      */
-    function withdrawFromPool(string memory poolName, uint256 amount) external {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
-        require(amount > 0, "Amount must be greater than 0");
+    function _depositToProtocol(address token, uint256 amount) internal {
+        require(address(tokenAdapters[token]) != address(0), "UniversalVault: no adapter set for token");
         
-        // Route the withdrawal based on protocol
-        if (poolInfo.protocol == Protocol.AAVE_V2) {
-            // Withdraw from Aave V2
-            aaveVaultV2.withdraw(poolInfo.underlyingToken, amount);
-            IERC20(poolInfo.underlyingToken).safeTransfer(msg.sender, amount);
-            emit Withdrawn(poolName, poolInfo.underlyingToken, amount, msg.sender);
-        } else if (poolInfo.protocol == Protocol.AAVE_V3) {
-            // Withdraw from Aave V3
-            aaveVaultV3.withdraw(poolInfo.underlyingToken, amount);
-            IERC20(poolInfo.underlyingToken).safeTransfer(msg.sender, amount);
-            emit Withdrawn(poolName, poolInfo.underlyingToken, amount, msg.sender);
-        } else if (poolInfo.protocol == Protocol.MORPHO_BLUE) {
-            // Withdraw from Morpho Blue
-            withdrawFromMorphoBlue(poolName, amount);
-        }
+        // Approve the adapter to spend tokens
+        IERC20(token).approve(address(tokenAdapters[token]), 0);
+        IERC20(token).approve(address(tokenAdapters[token]), amount);
+        
+        // Deposit to adapter
+        uint256 depositedAmount = tokenAdapters[token].deposit(token, amount);
+        
+        emit ProtocolDeposit(token, address(tokenAdapters[token]), depositedAmount);
     }
-
+    
     /**
-     * @dev Withdraw from a Morpho Blue pool
-     * @param poolName Name of the pool
-     * @param amount Amount to withdraw
+     * @notice Withdraw tokens from protocol through adapter
+     * @param token The token address
+     * @param minAmount The minimum amount needed
      */
-    function withdrawFromMorphoBlue(string memory poolName, uint256 amount) public {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
-        require(poolInfo.protocol == Protocol.MORPHO_BLUE, "Not a Morpho Blue pool");
-        require(amount > 0, "Amount must be greater than 0");
+    function _withdrawFromProtocol(address token, uint256 minAmount) internal {
+        require(address(tokenAdapters[token]) != address(0), "UniversalVault: no adapter set for token");
         
-        address token = poolInfo.underlyingToken;
+        // Withdraw from adapter
+        uint256 withdrawnAmount = tokenAdapters[token].withdraw(token);
         
-        // Get the market params for Morpho Blue
-        IMorphoBlue.MarketParams memory marketParams = getMorphoMarketParams(poolName);
+        emit ProtocolWithdraw(token, address(tokenAdapters[token]), withdrawnAmount);
         
-        // Call the withdraw function based on token type
-        if (token == marketParams.loanToken) {
-            // Loan token withdrawal
-            try IMorphoBlue(morphoBlue).withdraw(
-                marketParams,
-                amount,    // assets
-                0,         // shares (0 means use assets)
-                address(this),  // onBehalf
-                msg.sender      // receiver
-            ) returns (uint256 assetsWithdrawn, uint256 sharesWithdrawn) {
-                emit Withdrawn(poolName, token, assetsWithdrawn, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("Morpho withdraw failed: ", reason)));
-            } catch {
-                revert("Morpho withdraw failed");
-            }
-        } else if (token == marketParams.collateralToken) {
-            // Collateral token withdrawal
-            try IMorphoBlue(morphoBlue).withdrawCollateral(
-                marketParams,
-                amount,    // assets
-                address(this),  // onBehalf
-                msg.sender      // receiver
-            ) {
-                emit Withdrawn(poolName, token, amount, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("Morpho withdrawCollateral failed: ", reason)));
-            } catch {
-                revert("Morpho withdrawCollateral failed");
-            }
-        } else {
-            revert("Token not matching loan or collateral token");
-        }
+        // Ensure we got enough
+        require(withdrawnAmount >= minAmount, "UniversalVault: insufficient funds returned from protocol");
     }
-
+    
     /**
-     * @dev Swap tokens and deposit into a pool in one transaction
-     * @param fromToken Source token address
-     * @param poolName Target pool name
-     * @param amountIn Amount of source tokens to swap
-     * @param minAmountOut Minimum amount of destination tokens to receive
-     * @param deadline Swap deadline timestamp
+     * @notice Force deposit all vault's balance of a token to the protocol
+     * @param token The token address
      */
-    function swapAndDeposit(
-        address fromToken,
-        string memory poolName,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 deadline
-    ) external {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
+    function forceDeposit(address token) external onlyOwner {
+        require(address(tokenAdapters[token]) != address(0), "UniversalVault: no adapter set for token");
         
-        // Perform the swap
-        address toToken = poolInfo.underlyingToken;
-        uint256 amountOut = swapTokens(fromToken, toToken, amountIn, minAmountOut, deadline);
+        uint256 vaultTokenBalance = IERC20(token).balanceOf(address(this));
+        require(vaultTokenBalance > 0, "UniversalVault: no balance to deposit");
         
-        // Deposit based on the protocol
-        if (poolInfo.protocol == Protocol.AAVE_V2) {
-            // Deposit to Aave V2
-            IERC20(toToken).approve(address(aaveVaultV2), amountOut);
-            try aaveVaultV2.deposit(toToken, amountOut) {
-                emit Deposited(poolName, toToken, amountOut, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV2 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.AAVE_V3) {
-            // Deposit to Aave V3
-            IERC20(toToken).approve(address(aaveVaultV3), amountOut);
-            try aaveVaultV3.deposit(toToken, amountOut) {
-                emit Deposited(poolName, toToken, amountOut, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV3 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.MORPHO_BLUE) {
-            // Already in this contract, so use internal deposit
-            depositToMorphoBlue(poolName, amountOut);
-        }
+        _depositToProtocol(token, vaultTokenBalance);
     }
-
+    
     /**
-     * @dev Multi-hop swap tokens and deposit into a pool in one transaction
-     * @param path Encoded swap path
-     * @param poolName Target pool name
-     * @param amountIn Amount of source tokens to swap
-     * @param minAmountOut Minimum amount of destination tokens to receive
-     * @param deadline Swap deadline timestamp
+     * @notice Force withdraw all of a token from the protocol
+     * @param token The token address
      */
-    function swapMultihopAndDeposit(
-        bytes memory path,
-        string memory poolName,
-        uint256 amountIn,
-        uint256 minAmountOut,
-        uint256 deadline
-    ) external {
-        PoolInfo memory poolInfo = pools[poolName];
-        require(poolInfo.poolAddress != address(0), "Pool not found");
+    function forceWithdraw(address token) external onlyOwner {
+        require(address(tokenAdapters[token]) != address(0), "UniversalVault: no adapter set for token");
         
-        // Perform the multi-hop swap
-        uint256 amountOut = swapTokensMultihop(path, amountIn, minAmountOut, deadline);
+        uint256 adapterBalance = tokenAdapters[token].getBalance(token);
+        require(adapterBalance > 0, "UniversalVault: no balance to withdraw");
         
-        address toToken = poolInfo.underlyingToken;
+        _withdrawFromProtocol(token, 0);
+    }
+    
+    /**
+     * @notice Rescue tokens stuck in this contract
+     * @param token The token to rescue
+     * @param to The address to send tokens to
+     * @param amount The amount to rescue
+     */
+    function rescue(address token, address to, uint256 amount) external onlyOwner {
+        // Don't allow rescue of tokens that users have deposited
+        require(vaultBalances[token] == 0 || IERC20(token).balanceOf(address(this)) > vaultBalances[token], 
+            "UniversalVault: cannot rescue user funds");
         
-        // Deposit based on the protocol
-        if (poolInfo.protocol == Protocol.AAVE_V2) {
-            // Deposit to Aave V2
-            IERC20(toToken).approve(address(aaveVaultV2), amountOut);
-            try aaveVaultV2.deposit(toToken, amountOut) {
-                emit Deposited(poolName, toToken, amountOut, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV2 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.AAVE_V3) {
-            // Deposit to Aave V3
-            IERC20(toToken).approve(address(aaveVaultV3), amountOut);
-            try aaveVaultV3.deposit(toToken, amountOut) {
-                emit Deposited(poolName, toToken, amountOut, msg.sender);
-            } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("AaveV3 deposit failed: ", reason)));
-            }
-        } else if (poolInfo.protocol == Protocol.MORPHO_BLUE) {
-            // Already in this contract, so use internal deposit
-            depositToMorphoBlue(poolName, amountOut);
-        }
+        // Calculate maximum amount that can be rescued
+        uint256 rescuableAmount = IERC20(token).balanceOf(address(this)) - vaultBalances[token];
+        require(amount <= rescuableAmount, "UniversalVault: cannot rescue more than available");
+        
+        IERC20(token).safeTransfer(to, amount);
     }
 }
