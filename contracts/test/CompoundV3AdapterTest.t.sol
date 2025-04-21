@@ -24,6 +24,8 @@ contract CompoundV3AdapterTest is Test {
     address constant USDC_WHALE = 0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503;
     address constant WETH_WHALE = 0x2F0b23f53734252Bda2277357e97e1517d6B042A;
     address constant DAI_WHALE = 0x6Afef3F0ee9C22B0F1734BF06C7657B72de76027;
+
+    address constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     
     // Test contracts
     UniversalVault public vault;
@@ -37,7 +39,7 @@ contract CompoundV3AdapterTest is Test {
         vm.createSelectFork("http://localhost:8545");
         
         // Deploy contracts
-        vault = new UniversalVault();
+        vault = new UniversalVault(UNISWAP_V3_ROUTER);
         adapter = new CompoundV3Adapter(COMET_REWARDS);
         
         // Add supported markets to the adapter

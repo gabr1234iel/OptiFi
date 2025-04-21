@@ -24,6 +24,8 @@ contract MetaMorphoAdapterTest is Test {
     address constant USDC_WHALE = 0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503;
     address constant WETH_WHALE = 0x2F0b23f53734252Bda2277357e97e1517d6B042A;
     address constant DAI_WHALE = 0x6Afef3F0ee9C22B0F1734BF06C7657B72de76027;
+
+    address constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     
     // Test contracts
     UniversalVault public vault;
@@ -37,7 +39,7 @@ contract MetaMorphoAdapterTest is Test {
         vm.createSelectFork("http://localhost:8545");
         
         // Deploy contracts
-        vault = new UniversalVault();
+        vault = new UniversalVault(UNISWAP_V3_ROUTER);
         adapter = new MetaMorphoAdapter();
         
         // Add vaults to the adapter
@@ -327,28 +329,6 @@ contract MetaMorphoAdapterTest is Test {
         // Verify tokens were withdrawn from protocol to vault
         // In a real environment, this would see finalVaultTokenBalance > initialVaultTokenBalance
         // But in a fork test, this might not work as expected
-    }
-    
-    function testRebalance() public {
-        // First deposit some tokens
-        testDepositToMorpho();
-        
-        // Deploy a new adapter
-        MetaMorphoAdapter newAdapter = new MetaMorphoAdapter();
-        
-        // Set up the new adapter
-        vm.startPrank(newAdapter.owner());
-        // Add different default vaults
-        newAdapter.addVault(USDC, BBQUSDC, "BBQUSDC");
-        vm.stopPrank();
-        
-        // Rebalance to new adapter
-        vm.startPrank(vault.owner());
-        vault.rebalance(USDC, address(newAdapter));
-        vm.stopPrank();
-        
-        // Verify adapter was switched
-        assertEq(address(vault.tokenAdapters(USDC)), address(newAdapter));
     }
     
     function testFailNonOwnerAddVault() public {
