@@ -359,7 +359,7 @@ export const depositToAave = async (token: string, amount: string): Promise<stri
   await approveToken(token, amount, UNIVERSAL_VAULT_ADDRESS);
   
   // Execute the deposit (use version 1 for Aave V3)
-  const tx = await vaultContract.depositToAave(tokenAddress, parsedAmount, 1);
+  const tx = await vaultContract.deposit(tokenAddress, parsedAmount);
   
   await tx.wait();
   return tx.hash;
@@ -377,7 +377,7 @@ export const withdrawFromAave = async (token: string, amount: string): Promise<s
   const parsedAmount = await formatAmount(token, amount);
   
   // Execute the withdrawal (use version 1 for Aave V3)
-  const tx = await vaultContract.withdrawFromAave(tokenAddress, parsedAmount, 1);
+  const tx = await vaultContract.withdraw(tokenAddress, parsedAmount);
   
   await tx.wait();
   return tx.hash;
@@ -410,7 +410,7 @@ export const depositToMorphoBlue = async (poolName: string, amount: string): Pro
     await approveToken(tokenSymbol, amount, UNIVERSAL_VAULT_ADDRESS);
     
     // Execute the deposit
-    const tx = await vaultContract.depositToMorphoBlue(poolName, parsedAmount);
+    const tx = await vaultContract.deposit(poolName, parsedAmount);
     
     await tx.wait();
     return tx.hash;
@@ -444,7 +444,7 @@ export const withdrawFromMorphoBlue = async (poolName: string, amount: string): 
     const parsedAmount = await formatAmount(tokenSymbol, amount);
     
     // Execute the withdrawal
-    const tx = await vaultContract.withdrawFromMorphoBlue(poolName, parsedAmount);
+    const tx = await vaultContract.withdraw(poolName, parsedAmount);
     
     await tx.wait();
     return tx.hash;
