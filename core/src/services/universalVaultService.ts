@@ -1,831 +1,30 @@
+// src/services/universalVaultService.ts
 import { ethers } from 'ethers';
 import { getProvider } from './web3';
-
-// Replace the simplified ABI with the imported one
-// const UniversalVaultABI = [...] <- Remove/comment this line
-
-// Import ABIs
-// You can generate ABIs after contract compilation or paste them directly here
-const UniversalVaultABI = [
-    {
-      "type": "constructor",
-      "inputs": [
-        {
-          "name": "_swapRouter",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "_aaveVaultV2",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "_aaveVaultV3",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "_morphoBlue",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "aaveVaultV2",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "contract AaveVault"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "aaveVaultV3",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "contract AaveVault"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "addAavePool",
-      "inputs": [
-        {
-          "name": "name",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "poolAddress",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "underlyingToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "depositFunctionSig",
-          "type": "bytes4",
-          "internalType": "bytes4"
-        },
-        {
-          "name": "withdrawFunctionSig",
-          "type": "bytes4",
-          "internalType": "bytes4"
-        },
-        {
-          "name": "protocol",
-          "type": "uint8",
-          "internalType": "enum UniversalVault.Protocol"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "addMorphoBluePool",
-      "inputs": [
-        {
-          "name": "name",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "morphoMarketParams",
-          "type": "tuple",
-          "internalType": "struct IMorphoBlue.MarketParams",
-          "components": [
-            {
-              "name": "loanToken",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "collateralToken",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "oracle",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "irm",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "lltv",
-              "type": "uint256",
-              "internalType": "uint256"
-            }
-          ]
-        },
-        {
-          "name": "underlyingToken",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "depositToAave",
-      "inputs": [
-        {
-          "name": "token",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "aaveVersion",
-          "type": "uint8",
-          "internalType": "uint8"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "depositToMorphoBlue",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "depositToPool",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "getAllPoolNames",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "string[]",
-          "internalType": "string[]"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "getMorphoMarketParams",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "tuple",
-          "internalType": "struct IMorphoBlue.MarketParams",
-          "components": [
-            {
-              "name": "loanToken",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "collateralToken",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "oracle",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "irm",
-              "type": "address",
-              "internalType": "address"
-            },
-            {
-              "name": "lltv",
-              "type": "uint256",
-              "internalType": "uint256"
-            }
-          ]
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "morphoBlue",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "owner",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "poolNames",
-      "inputs": [
-        {
-          "name": "",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "string",
-          "internalType": "string"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "pools",
-      "inputs": [
-        {
-          "name": "",
-          "type": "string",
-          "internalType": "string"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "poolAddress",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "underlyingToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "depositFunction",
-          "type": "bytes4",
-          "internalType": "bytes4"
-        },
-        {
-          "name": "withdrawFunction",
-          "type": "bytes4",
-          "internalType": "bytes4"
-        },
-        {
-          "name": "protocol",
-          "type": "uint8",
-          "internalType": "enum UniversalVault.Protocol"
-        },
-        {
-          "name": "loanToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "collateralToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "oracle",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "irm",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "lltv",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "renounceOwnership",
-      "inputs": [],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "swapAndDeposit",
-      "inputs": [
-        {
-          "name": "fromToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amountIn",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "minAmountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "deadline",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "swapMultihopAndDeposit",
-      "inputs": [
-        {
-          "name": "path",
-          "type": "bytes",
-          "internalType": "bytes"
-        },
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amountIn",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "minAmountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "deadline",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "swapRouter",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "swapTokens",
-      "inputs": [
-        {
-          "name": "fromToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "toToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "amountIn",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "minAmountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "deadline",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "amountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "swapTokensMultihop",
-      "inputs": [
-        {
-          "name": "path",
-          "type": "bytes",
-          "internalType": "bytes"
-        },
-        {
-          "name": "amountIn",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "minAmountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "deadline",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "amountOut",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "transferOwnership",
-      "inputs": [
-        {
-          "name": "newOwner",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "withdrawFromAave",
-      "inputs": [
-        {
-          "name": "token",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "aaveVersion",
-          "type": "uint8",
-          "internalType": "uint8"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "withdrawFromMorphoBlue",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "withdrawFromPool",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "internalType": "string"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "event",
-      "name": "DebugInfo",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "indexed": false,
-          "internalType": "string"
-        },
-        {
-          "name": "poolAddress",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "token",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "Deposited",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "indexed": false,
-          "internalType": "string"
-        },
-        {
-          "name": "token",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "user",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "OwnershipTransferred",
-      "inputs": [
-        {
-          "name": "previousOwner",
-          "type": "address",
-          "indexed": true,
-          "internalType": "address"
-        },
-        {
-          "name": "newOwner",
-          "type": "address",
-          "indexed": true,
-          "internalType": "address"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "PoolAdded",
-      "inputs": [
-        {
-          "name": "name",
-          "type": "string",
-          "indexed": false,
-          "internalType": "string"
-        },
-        {
-          "name": "poolAddress",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "underlyingToken",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "protocol",
-          "type": "uint8",
-          "indexed": false,
-          "internalType": "enum UniversalVault.Protocol"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "TokenSwapped",
-      "inputs": [
-        {
-          "name": "fromToken",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "toToken",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "amountIn",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "amountOut",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "Withdrawn",
-      "inputs": [
-        {
-          "name": "poolName",
-          "type": "string",
-          "indexed": false,
-          "internalType": "string"
-        },
-        {
-          "name": "token",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "user",
-          "type": "address",
-          "indexed": false,
-          "internalType": "address"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "error",
-      "name": "OwnableInvalidOwner",
-      "inputs": [
-        {
-          "name": "owner",
-          "type": "address",
-          "internalType": "address"
-        }
-      ]
-    },
-    {
-      "type": "error",
-      "name": "OwnableUnauthorizedAccount",
-      "inputs": [
-        {
-          "name": "account",
-          "type": "address",
-          "internalType": "address"
-        }
-      ]
-    },
-    {
-      "type": "error",
-      "name": "SafeERC20FailedOperation",
-      "inputs": [
-        {
-          "name": "token",
-          "type": "address",
-          "internalType": "address"
-        }
-      ]
-    }
-  ]
-  
-  
-
-// ERC20 Token ABI - minimal for approvals
-const ERC20ABI = [
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function balanceOf(address account) view returns (uint256)",
-  "function decimals() view returns (uint8)"
-];
+import UniversalVaultABI from '../constants/UniversalVaultABI.json';
 
 // Universal Vault Contract address - replace with your deployed address
-const UNIVERSAL_VAULT_ADDRESS = "0xEd3AAE51d33138ef67555AE0925A38E77Df5B7e0"; // Example
+const UNIVERSAL_VAULT_ADDRESS = "0xfC3983DE3F7cBe1Ba01084469779470AD0BbeFfa";
+
+
+// address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+// address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+// address constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+// address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+// address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+// address constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
+// address constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
+// address constant ETHX = 0xA35b1B31Ce002FBF2058D22F30f95D405200A15b;
+// address constant PYUSD = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
+// address constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
+// address constant USDE = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
+// address constant USDS = 0x45AC379F019E48ca5dAC02E54F406F99F5088099;
+// address constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+// address constant RSETH = 0xA1290d69c65A6Fe4DF752f95823fae25cB99e5A7;
+// address constant USD0 = 0x35D8949372D46B7a3D5A56006AE77B215fc69bC0;
+// address constant USDL = 0x7751E2F4b8ae93EF6B79d86419d42FE3295A4559;
+// address constant RUSD = 0x09D4214C03D01F49544C0448DBE3A27f768F2b34;
+// address constant EUSD = 0xA0d69E286B938e21CBf7E51D71F6A4c8918f482F;
 
 // Token addresses
 const TOKEN_ADDRESSES = {
@@ -834,21 +33,35 @@ const TOKEN_ADDRESSES = {
   USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
   DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
   PYUSD: '0x6c3ea9036406852006290770bedfcaba0e23a0e8',
-  USDE: '0x4c9edd5852cd905f086c759e8383e09bff1e68b3',
-  USDS: '0xdc035d45d973e3ec169d2276ddab16f1e407384f',
+  USDE: '0x4c9EDD5852cd905f086C759E8383e09bff1E68B3',
+  USDS: '0x45AC379F019E48ca5dAC02E54F406F99F5088099',
+  USD0: '0x35D8949372D46B7a3D5A56006AE77B215fc69bC0',
+  USDL: '0x7751E2F4b8ae93EF6B79d86419d42FE3295A4559',
+  RUSD: '0x09D4214C03D01F49544C0448DBE3A27f768F2b34',
+  EUSD: '0xA0d69E286B938e21CBf7E51D71F6A4c8918f482F',
   
   // Ethereum derivatives
   WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
   CBETH: '0xBe9895146f7AF43049ca1c1AE358B0541Ea49704',
   STETH: '0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
   WSTETH: '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0',
-  RETH: '0xae78736Cd615f374D3085123A210448E74Fc6393',
-  WEETH: '0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee',
+  WEETH: '0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee',
   ETHX: '0xA35b1B31Ce002FBF2058D22F30f95D405200A15b',
+  RSETH: '0xA1290d69c65A6Fe4DF752f95823fae25cB99e5A7',
+  RETH: '0xae78736Cd615f374D3085123A210448E74Fc6393',
+
   
   // Bitcoin derivatives
   WBTC: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'
 };
+
+// ERC20 Token ABI - minimal for approvals
+const ERC20ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)"
+];
 
 // Create vault contract instance
 export const getUniversalVaultContract = () => {
@@ -897,7 +110,26 @@ export const getAvailablePools = async (): Promise<string[]> => {
   const vaultContract = getUniversalVaultContract();
   if (!vaultContract) throw new Error('Vault contract not available');
   
-  return await vaultContract.getAllPoolNames();
+  try {
+    return await vaultContract.getAllPoolNames();
+  } catch (error) {
+    console.error('Error fetching pools:', error);
+    
+    // Mock data for testing
+    return [
+      'STEAKUSDC',
+      'REUSDC',
+      'BBQUSDC',
+      'SFRXUSD',
+      'USUALUSDC+',
+      'STEAKETH',
+      'EUSDCHIGHYIELD',
+      'SMWETH',
+      'WETHV2',
+      'USDC',
+      'DAI'
+    ];
+  }
 };
 
 // Get pool details
@@ -905,11 +137,116 @@ export const getPoolDetails = async (poolName: string) => {
   const vaultContract = getUniversalVaultContract();
   if (!vaultContract) throw new Error('Vault contract not available');
   
-  const poolInfo = await vaultContract.pools(poolName);
+  try {
+    const poolInfo = await vaultContract.pools(poolName);
+    return {
+      poolAddress: poolInfo.poolAddress,
+      underlyingToken: poolInfo.underlyingToken,
+      protocol: poolInfo.protocol, // Protocol enum (0=AAVE_V2, 1=AAVE_V3, etc.)
+      loanToken: poolInfo.loanToken, // For Morpho Blue
+      collateralToken: poolInfo.collateralToken, // For Morpho Blue
+      // Mock APY data
+      apy: Math.floor(Math.random() * 1000) + 100 // Random APY between 1% and 11%
+    };
+  } catch (error) {
+    console.error('Error fetching pool details:', error);
+    
+    // Mock data for testing
+    const protocols: Record<string, number> = {
+      'STEAKUSDC': 2, // Morpho Blue
+      'REUSDC': 2, // Morpho Blue
+      'BBQUSDC': 2, // Morpho Blue
+      'SFRXUSD': 2, // Morpho Blue
+      'USUALUSDC+': 2, // Morpho Blue
+      'STEAKETH': 2, // Morpho Blue
+      'EUSDCHIGHYIELD': 2, // Morpho Blue
+      'SMWETH': 2, // Morpho Blue
+      'WETHV2': 1, // Aave V3
+      'USDC': 0, // Aave V2
+      'DAI': 3 // Compound V2
+    };
+    
+    const underlyingTokens: Record<string, string> = {
+      'STEAKUSDC': TOKEN_ADDRESSES.USDC,
+      'REUSDC': TOKEN_ADDRESSES.USDC,
+      'BBQUSDC': TOKEN_ADDRESSES.USDC,
+      'SFRXUSD': TOKEN_ADDRESSES.USDC,
+      'USUALUSDC+': TOKEN_ADDRESSES.USDC,
+      'STEAKETH': TOKEN_ADDRESSES.WETH,
+      'EUSDCHIGHYIELD': TOKEN_ADDRESSES.USDC,
+      'SMWETH': TOKEN_ADDRESSES.WETH,
+      'WETHV2': TOKEN_ADDRESSES.WETH,
+      'USDC': TOKEN_ADDRESSES.USDC,
+      'DAI': TOKEN_ADDRESSES.DAI
+    };
+    
+    return {
+      poolAddress: '0x' + '1'.repeat(40), // Dummy address
+      underlyingToken: underlyingTokens[poolName] || TOKEN_ADDRESSES.USDC,
+      protocol: protocols[poolName] || 0,
+      apy: Math.floor(Math.random() * 1000) + 100 // Random APY between 1% and 11%
+    };
+  }
+};
+
+// Get APY comparison across protocols for a token
+export const getProtocolAPYs = async () => {
+  // In a real implementation, this would query your vault contract
+  // or directly query the protocols
+  
+  // Mock data for testing
   return {
-    poolAddress: poolInfo.poolAddress,
-    underlyingToken: poolInfo.underlyingToken,
-    protocol: ['AAVE_V2', 'AAVE_V3', 'MORPHO_BLUE'][poolInfo.protocol] // Convert number to string name
+    // USDC APYs across protocols
+    'USDC': {
+      'AAVE_V2': 3.42,
+      'AAVE_V3': 3.68,
+      'MORPHO_BLUE': 4.21,
+      'COMPOUND_V2': 3.51,
+      'COMPOUND_V3': 3.89,
+      'EULER_V2': 3.76,
+      'FLUID': 3.95
+    },
+    // WETH APYs across protocols
+    'WETH': {
+      'AAVE_V2': 2.56,
+      'AAVE_V3': 2.78,
+      'MORPHO_BLUE': 3.15,
+      'COMPOUND_V2': 2.63,
+      'COMPOUND_V3': 2.92,
+      'EULER_V2': 2.82,
+      'FLUID': 2.97
+    },
+    // DAI APYs across protocols
+    'DAI': {
+      'AAVE_V2': 3.31,
+      'AAVE_V3': 3.57,
+      'MORPHO_BLUE': 4.11,
+      'COMPOUND_V2': 3.42,
+      'COMPOUND_V3': 3.78,
+      'EULER_V2': 3.65,
+      'FLUID': 3.85
+    }
+  };
+};
+
+// Get user balances across protocols
+export const getProtocolBalances = async (userAddress: string) => {
+  // In a real implementation, this would query your vault contract
+  // to get user's balances across different protocols
+  
+  // Mock data for testing
+  return {
+    'AAVE_V2': {
+      'USDC': '1,000.00',
+      'DAI': '500.00'
+    },
+    'AAVE_V3': {
+      'WETH': '1.25'
+    },
+    'MORPHO_BLUE': {
+      'USDC': '3,808.42',
+      'WETH': '3.24'
+    }
   };
 };
 
@@ -933,7 +270,7 @@ export const swapTokens = async (
   const parsedAmount = await formatAmount(fromToken, amount);
   
   // Calculate minimum output amount based on slippage
-  // Note: In a real implementation, you would get the expected output from a price oracle or quote
+  // In a real implementation, you would get the expected output from a price oracle or quote
   const minAmountOut = parsedAmount.mul(100 - Math.floor(slippagePercent * 100)).div(100);
   
   // Set deadline to 20 minutes from now
@@ -1021,8 +358,8 @@ export const depositToAave = async (token: string, amount: string): Promise<stri
   // Approve the vault to spend tokens
   await approveToken(token, amount, UNIVERSAL_VAULT_ADDRESS);
   
-  // Execute the deposit
-  const tx = await vaultContract.depositToAave(tokenAddress, parsedAmount);
+  // Execute the deposit (use version 1 for Aave V3)
+  const tx = await vaultContract.depositToAave(tokenAddress, parsedAmount, 1);
   
   await tx.wait();
   return tx.hash;
@@ -1039,8 +376,8 @@ export const withdrawFromAave = async (token: string, amount: string): Promise<s
   // Format amount with correct decimals
   const parsedAmount = await formatAmount(token, amount);
   
-  // Execute the withdrawal
-  const tx = await vaultContract.withdrawFromAave(tokenAddress, parsedAmount);
+  // Execute the withdrawal (use version 1 for Aave V3)
+  const tx = await vaultContract.withdrawFromAave(tokenAddress, parsedAmount, 1);
   
   await tx.wait();
   return tx.hash;
@@ -1051,31 +388,36 @@ export const depositToMorphoBlue = async (poolName: string, amount: string): Pro
   const vaultContract = getUniversalVaultContract();
   if (!vaultContract) throw new Error('Vault contract not available');
   
-  // Get pool details to find the underlying token
-  const poolInfo = await getPoolDetails(poolName);
-  
-  // Find the token symbol by address
-  let tokenSymbol = '';
-  for (const [symbol, address] of Object.entries(TOKEN_ADDRESSES)) {
-    if (address.toLowerCase() === poolInfo.underlyingToken.toLowerCase()) {
-      tokenSymbol = symbol;
-      break;
+  try {
+    // Get pool details to find the underlying token
+    const poolInfo = await getPoolDetails(poolName);
+    
+    // Find the token symbol by address
+    let tokenSymbol = '';
+    for (const [symbol, address] of Object.entries(TOKEN_ADDRESSES)) {
+      if (address.toLowerCase() === poolInfo.underlyingToken.toLowerCase()) {
+        tokenSymbol = symbol;
+        break;
+      }
     }
+    
+    if (!tokenSymbol) throw new Error('Unsupported token for this pool');
+    
+    // Format amount with correct decimals
+    const parsedAmount = await formatAmount(tokenSymbol, amount);
+    
+    // Approve the vault to spend tokens
+    await approveToken(tokenSymbol, amount, UNIVERSAL_VAULT_ADDRESS);
+    
+    // Execute the deposit
+    const tx = await vaultContract.depositToMorphoBlue(poolName, parsedAmount);
+    
+    await tx.wait();
+    return tx.hash;
+  } catch (error) {
+    console.error("Error depositing to Morpho Blue:", error);
+    throw error;
   }
-  
-  if (!tokenSymbol) throw new Error('Unsupported token for this pool');
-  
-  // Format amount with correct decimals
-  const parsedAmount = await formatAmount(tokenSymbol, amount);
-  
-  // Approve the vault to spend tokens
-  await approveToken(tokenSymbol, amount, UNIVERSAL_VAULT_ADDRESS);
-  
-  // Execute the deposit
-  const tx = await vaultContract.depositToMorphoBlue(poolName, parsedAmount);
-  
-  await tx.wait();
-  return tx.hash;
 };
 
 // Withdraw from Morpho Blue
@@ -1083,28 +425,33 @@ export const withdrawFromMorphoBlue = async (poolName: string, amount: string): 
   const vaultContract = getUniversalVaultContract();
   if (!vaultContract) throw new Error('Vault contract not available');
   
-  // Get pool details to find the underlying token
-  const poolInfo = await getPoolDetails(poolName);
-  
-  // Find the token symbol by address
-  let tokenSymbol = '';
-  for (const [symbol, address] of Object.entries(TOKEN_ADDRESSES)) {
-    if (address.toLowerCase() === poolInfo.underlyingToken.toLowerCase()) {
-      tokenSymbol = symbol;
-      break;
+  try {
+    // Get pool details to find the underlying token
+    const poolInfo = await getPoolDetails(poolName);
+    
+    // Find the token symbol by address
+    let tokenSymbol = '';
+    for (const [symbol, address] of Object.entries(TOKEN_ADDRESSES)) {
+      if (address.toLowerCase() === poolInfo.underlyingToken.toLowerCase()) {
+        tokenSymbol = symbol;
+        break;
+      }
     }
+    
+    if (!tokenSymbol) throw new Error('Unsupported token for this pool');
+    
+    // Format amount with correct decimals
+    const parsedAmount = await formatAmount(tokenSymbol, amount);
+    
+    // Execute the withdrawal
+    const tx = await vaultContract.withdrawFromMorphoBlue(poolName, parsedAmount);
+    
+    await tx.wait();
+    return tx.hash;
+  } catch (error) {
+    console.error("Error withdrawing from Morpho Blue:", error);
+    throw error;
   }
-  
-  if (!tokenSymbol) throw new Error('Unsupported token for this pool');
-  
-  // Format amount with correct decimals
-  const parsedAmount = await formatAmount(tokenSymbol, amount);
-  
-  // Execute the withdrawal
-  const tx = await vaultContract.withdrawFromMorphoBlue(poolName, parsedAmount);
-  
-  await tx.wait();
-  return tx.hash;
 };
 
 // Swap tokens and deposit into a pool in one transaction

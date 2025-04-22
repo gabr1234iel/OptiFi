@@ -83,7 +83,7 @@ contract EulerV2AdapterTest is Test {
         vm.stopPrank();
     }
     
-    function testEulerVaults() public {
+    function testEulerVaults() public view{
         // Check USDC vault
         address usdcVault = eulerAdapter.eVaults(USDC);
         console.log("USDC vault:", usdcVault);
@@ -204,7 +204,7 @@ contract EulerV2AdapterTest is Test {
         vm.stopPrank();
     }
     
-    function testGetAPY() public {
+    function testGetAPY() public view{
         // Get APY for each token in a vault
         uint256 usdcApy = eulerAdapter.getAPY(USDC);
         uint256 wbtcApy = eulerAdapter.getAPY(WBTC);

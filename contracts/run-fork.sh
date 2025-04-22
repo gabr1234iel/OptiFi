@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Alchemy API key
-ALCHEMY_API_KEY="qpXCw0mLvPflVW_svNvLOkMVrdau3gKv"
+ALCHEMY_API_KEY="VAQcT5_FZnSb1JcH7-3TGfRmzVpTW1Yl"    #replace with actual key
 
 # Define RPC URL and port
 ETH_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/$ALCHEMY_API_KEY"
