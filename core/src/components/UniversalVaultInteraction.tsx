@@ -3,13 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { useWallet } from '../hooks/useWallet';
 import VaultActionTabs from './vault/VaultActionTabs';
 import TokenSelector from './vault/TokenSelector';
-import SwapSettings from './vault/SwapSettings';
 import { 
   deposit, 
-  withdraw, 
-  swapTokens, 
-  swapTokensMultihop,
-  swapAndDeposit,
+  withdraw,
   getUserTokenBalances,
   hasActiveAdapter
 } from '../services/universalVaultService';
@@ -25,12 +21,11 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
 }) => {
   const { isConnected } = useWallet();
   
-  // State for interaction mode
+  // State for interaction mode (simplified to only deposit/withdraw)
   const [interactionMode, setInteractionMode] = useState<string>(initialMode);
   
-  // State for tokens
-  const [fromToken, setFromToken] = useState<string>(initialToken || 'USDC');
-  const [toToken, setToToken] = useState<string>(initialToken || 'USDC');
+  // State for token
+  const [token, setToken] = useState<string>(initialToken || 'USDC');
   
   // State for amount
   const [amount, setAmount] = useState<string>('');
@@ -40,12 +35,6 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
   
   // State for active adapters
   const [tokenHasAdapter, setTokenHasAdapter] = useState<Record<string, boolean>>({});
-  
-  // State for swap path (for multihop)
-  const [useMultihop, setUseMultihop] = useState<boolean>(false);
-  const [intermediateToken, setIntermediateToken] = useState<string>('WETH');
-  const [fee1, setFee1] = useState<number>(3000);
-  const [fee2, setFee2] = useState<number>(3000);
   
   // State for transaction status
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -59,11 +48,7 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
     }
     
     if (initialToken) {
-      if (initialMode === 'withdraw') {
-        setToToken(initialToken);
-      } else {
-        setFromToken(initialToken);
-      }
+      setToken(initialToken);
     }
   }, [initialMode, initialToken]);
   
@@ -114,46 +99,17 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
       // Handle different interaction modes
       if (interactionMode === 'deposit') {
         // Check if the token has an active adapter
-        if (!tokenHasAdapter[toToken]) {
-          throw new Error(`No active adapter for ${toToken}. Please contact admin to set up an adapter for this token.`);
+        if (!tokenHasAdapter[token]) {
+          throw new Error(`No active adapter for ${token}. Please contact admin to set up an adapter for this token.`);
         }
         
-        if (fromToken === toToken) {
-          // Direct deposit without swap - automatically uses the active adapter
-          console.log(`Depositing ${amount} ${fromToken} to vault`);
-          txHash = await deposit(fromToken, amount);
-        } else {
-          // Swap and deposit
-          if (useMultihop) {
-            // Multi-hop swap and deposit
-            console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken} and depositing`);
-            const path = [fromToken, intermediateToken, toToken];
-            const fees = [fee1, fee2];
-            txHash = await swapTokensMultihop(path, fees, amount);
-            // Then deposit the result (in a production app, you'd get the actual output amount)
-            // This step is automatically handled by the vault when using swapAndDeposit
-          } else {
-            // Direct swap and deposit
-            console.log(`Swapping ${amount} ${fromToken} to ${toToken} and depositing`);
-            txHash = await swapAndDeposit(fromToken, toToken, amount);
-          }
-        }
+        // Direct deposit - no swapping involved
+        console.log(`Depositing ${amount} ${token} to vault`);
+        txHash = await deposit(token, amount);
       } else if (interactionMode === 'withdraw') {
-        // Direct withdrawal - no pool selection needed
-        console.log(`Withdrawing ${amount} ${toToken} from vault`);
-        txHash = await withdraw(toToken, amount);
-      } else if (interactionMode === 'swap') {
-        if (useMultihop) {
-          // Multi-hop swap
-          console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken}`);
-          const path = [fromToken, intermediateToken, toToken];
-          const fees = [fee1, fee2];
-          txHash = await swapTokensMultihop(path, fees, amount);
-        } else {
-          // Direct swap
-          console.log(`Swapping ${amount} ${fromToken} to ${toToken}`);
-          txHash = await swapTokens(fromToken, toToken, amount);
-        }
+        // Direct withdrawal
+        console.log(`Withdrawing ${amount} ${token} from vault`);
+        txHash = await withdraw(token, amount);
       }
       
       // Success - clear form and set tx hash
@@ -177,12 +133,11 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
   // Get max balance for current token
   const getMaxBalance = () => {
     if (interactionMode === 'withdraw') {
-      // For withdrawals, we'd need to get the user's balance in the vault
-      // This would be implemented in a real app
+      // We'd need to implement a function to get the user's vault balance
+      // This is a placeholder; in a real implementation, get the balance from the vault
       return '0'; // Placeholder
     } else {
-      // For deposits and swaps, use the user's wallet balance
-      const token = interactionMode === 'deposit' ? fromToken : fromToken;
+      // For deposits, use the user's wallet balance
       return userBalances[token] || '0';
     }
   };
@@ -191,22 +146,53 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
     <div className="bg-white rounded-xl shadow-md p-6 max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold mb-6 text-black">Universal Vault</h2>
       
-      {/* Interaction Mode Tabs */}
-      <VaultActionTabs 
-        activeTab={interactionMode} 
-        onChange={setInteractionMode} 
-      />
+      {/* Simplified Action Tabs - Only Deposit or Withdraw */}
+      <div className="mb-6">
+        <div className="flex space-x-2">
+          <button 
+            onClick={() => setInteractionMode('deposit')}
+            className={`flex-1 py-2 px-4 rounded-md transition ${
+              interactionMode === 'deposit' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Deposit
+          </button>
+          <button 
+            onClick={() => setInteractionMode('withdraw')}
+            className={`flex-1 py-2 px-4 rounded-md transition ${
+              interactionMode === 'withdraw' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+            }`}
+          >
+            Withdraw
+          </button>
+        </div>
+      </div>
       
       {/* Transaction Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Token Selection */}
-        <TokenSelector
-          interactionMode={interactionMode}
-          fromToken={fromToken}
-          toToken={toToken}
-          onChangeFromToken={setFromToken}
-          onChangeToToken={setToToken}
-        />
+        {/* Token Selection - Simplified */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            {interactionMode === 'deposit' ? 'Token to Deposit' : 'Token to Withdraw'}
+          </label>
+          <select
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md text-gray-700"
+            required
+          >
+            {/* Simplified to a flat list of tokens */}
+            <option value="USDC">USDC - USD Coin</option>
+            <option value="USDT">USDT - Tether</option>
+            <option value="DAI">DAI - Dai</option>
+            <option value="WETH">WETH - Wrapped Ether</option>
+            <option value="WBTC">WBTC - Wrapped Bitcoin</option>
+          </select>
+        </div>
         
         {/* Amount Input */}
         <div className="mb-4">
@@ -220,7 +206,7 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-md text-gray-700 pr-16"
-              placeholder={`Enter amount in ${interactionMode !== 'withdraw' ? fromToken : toToken}`}
+              placeholder={`Enter amount in ${token}`}
               required
             />
             <div className="absolute inset-y-0 right-0 flex items-center">
@@ -233,37 +219,21 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
               </button>
             </div>
           </div>
-          {userBalances[fromToken] && interactionMode !== 'withdraw' && (
+          {userBalances[token] && interactionMode === 'deposit' && (
             <p className="text-xs text-gray-500 mt-1">
-              Balance: {userBalances[fromToken]} {fromToken}
+              Balance: {userBalances[token]} {token}
             </p>
           )}
         </div>
         
         {/* Token Warning */}
-        {interactionMode === 'deposit' && !tokenHasAdapter[toToken] && (
+        {interactionMode === 'deposit' && !tokenHasAdapter[token] && (
           <div className="p-3 bg-yellow-100 text-yellow-800 rounded-md mb-4">
             <p className="text-sm">
-              <strong>Warning:</strong> There is no active adapter for {toToken}. 
+              <strong>Warning:</strong> There is no active adapter for {token}. 
               Your funds won't earn yield until an administrator sets up an adapter for this token.
             </p>
           </div>
-        )}
-        
-        {/* Swap Settings */}
-        {((interactionMode === 'swap') || (interactionMode === 'deposit' && fromToken !== toToken)) && (
-          <SwapSettings
-            useMultihop={useMultihop}
-            onToggleMultihop={() => setUseMultihop(!useMultihop)}
-            intermediateToken={intermediateToken}
-            onChangeIntermediateToken={setIntermediateToken}
-            fee1={fee1}
-            onChangeFee1={setFee1}
-            fee2={fee2}
-            onChangeFee2={setFee2}
-            fromToken={fromToken}
-            toToken={toToken}
-          />
         )}
         
         {/* Submit Button */}
@@ -278,8 +248,7 @@ const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({
         >
           {isProcessing ? 'Processing...' : (
             !isConnected ? 'Connect Wallet to Continue' :
-            interactionMode === 'deposit' ? 'Deposit' :
-            interactionMode === 'withdraw' ? 'Withdraw' : 'Swap'
+            interactionMode === 'deposit' ? 'Deposit' : 'Withdraw'
           )}
         </button>
       </form>

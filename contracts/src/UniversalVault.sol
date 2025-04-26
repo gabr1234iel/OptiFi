@@ -104,6 +104,11 @@ contract UniversalVault is Ownable, ReentrancyGuard {
         uint256 srcAmount,
         uint256 targetAmount
     );
+    event AccountingCorrected(
+        address indexed token,
+        uint256 vaultBalanceBefore,
+        uint256 vaultBalanceAfter
+    );
 
     /**
      * @dev Constructor
@@ -234,6 +239,12 @@ contract UniversalVault is Ownable, ReentrancyGuard {
             "UniversalVault: insufficient balance"
         );
 
+        // Check if vault has enough balance to prevent underflow
+        require(
+            vaultBalances[token] >= amount,
+            "UniversalVault: insufficient vault balance"
+        );
+
         // Update balances
         userBalances[msg.sender][token] -= amount;
         vaultBalances[token] -= amount;
@@ -247,6 +258,13 @@ contract UniversalVault is Ownable, ReentrancyGuard {
                 _withdrawFromProtocol(token, amount - vaultTokenBalance);
             }
         }
+
+        // Double check the actual balance after potential protocol withdrawal
+        uint256 actualBalance = IERC20(token).balanceOf(address(this));
+        require(
+            actualBalance >= amount,
+            "UniversalVault: insufficient token balance after protocol withdrawal"
+        );
 
         // Transfer tokens to user
         IERC20(token).safeTransfer(msg.sender, amount);
@@ -651,7 +669,7 @@ contract UniversalVault is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates user balances proportionally after a swap
+     * @notice Updates user balances proportionally after a swap - FIXED VERSION
      * @param fromToken Source token
      * @param toToken Target token
      * @param fromAmount Amount of source token swapped
@@ -666,25 +684,51 @@ contract UniversalVault is Ownable, ReentrancyGuard {
         // If no source token in the vault, nothing to do
         if (vaultBalances[fromToken] == 0) return;
 
-        // Calculate the proportion
-        uint256 fromProportion = (fromAmount * 1e18) /
-            (vaultBalances[fromToken] + fromAmount);
+        // Calculate the proportion - FIXED to use only vaultBalances (already reduced by fromAmount)
+        uint256 fromProportion = (fromAmount * 1e18) / vaultBalances[fromToken];
+        if (fromProportion > 1e18) fromProportion = 1e18; // Cap at 100%
+
+        // Track how much we've assigned to users to detect rounding errors
+        uint256 totalAssignedFromAmount = 0;
+        uint256 totalAssignedToAmount = 0;
 
         // Update all users who have deposited
         for (uint256 i = 0; i < userList.length; i++) {
             address user = userList[i];
             if (userBalances[user][fromToken] > 0) {
-                uint256 userAmountFrom = (userBalances[user][fromToken] *
-                    fromProportion) / 1e18;
+                // Calculate user's portion of the from amount with high precision
+                uint256 userFromAmount = (userBalances[user][fromToken] * fromProportion) / 1e18;
 
-                // Skip users with tiny amounts
-                if (userAmountFrom > 0) {
-                    userBalances[user][fromToken] -= userAmountFrom;
-                    userBalances[user][toToken] +=
-                        (toAmount * userAmountFrom) /
-                        fromAmount;
+                // Skip users with zero amounts to avoid wasting gas
+                if (userFromAmount > 0) {
+                    // Calculate user's portion of the to amount
+                    uint256 userToAmount = (toAmount * userFromAmount) / fromAmount;
+
+                    // Update user balances
+                    userBalances[user][fromToken] -= userFromAmount;
+                    userBalances[user][toToken] += userToAmount;
+
+                    // Track assigned amounts
+                    totalAssignedFromAmount += userFromAmount;
+                    totalAssignedToAmount += userToAmount;
                 }
             }
+        }
+
+        // Handle any rounding errors by adjusting owner's balance
+        // This ensures all tokens are accounted for
+        if (totalAssignedFromAmount < fromAmount) {
+            uint256 dustFrom = fromAmount - totalAssignedFromAmount;
+            // Assign dust from source token to owner (reduce their balance as if they participated)
+            if (userBalances[owner()][fromToken] >= dustFrom) {
+                userBalances[owner()][fromToken] -= dustFrom;
+            }
+        }
+
+        if (totalAssignedToAmount < toAmount) {
+            uint256 dustTo = toAmount - totalAssignedToAmount;
+            // Assign dust from target token to owner
+            userBalances[owner()][toToken] += dustTo;
         }
     }
 
@@ -851,22 +895,69 @@ contract UniversalVault is Ownable, ReentrancyGuard {
         address to,
         uint256 amount
     ) external onlyOwner {
-        // Don't allow rescue of tokens that users have deposited
-        require(
-            vaultBalances[token] == 0 ||
-                IERC20(token).balanceOf(address(this)) > vaultBalances[token],
-            "UniversalVault: cannot rescue user funds"
-        );
-
         // Calculate maximum amount that can be rescued
-        uint256 rescuableAmount = IERC20(token).balanceOf(address(this)) -
-            vaultBalances[token];
+        uint256 actualTokenBalance = IERC20(token).balanceOf(address(this));
+        uint256 rescuableAmount = actualTokenBalance > vaultBalances[token] 
+            ? actualTokenBalance - vaultBalances[token] 
+            : 0;
+            
         require(
             amount <= rescuableAmount,
             "UniversalVault: cannot rescue more than available"
         );
 
         IERC20(token).safeTransfer(to, amount);
+    }
+
+    /**
+     * @notice Corrects the accounting if vault balances don't match actual token balances
+     * @param token The token address to correct
+     */
+    function correctAccounting(address token) external onlyOwner {
+        uint256 beforeBalance = vaultBalances[token];
+        uint256 actualBalance = IERC20(token).balanceOf(address(this));
+        
+        // If there's an adapter, add protocol balance
+        if (address(tokenAdapters[token]) != address(0)) {
+            actualBalance += tokenAdapters[token].getBalance(token);
+        }
+        
+        // Update vault balance to match actual balance
+        vaultBalances[token] = actualBalance;
+        
+        emit AccountingCorrected(token, beforeBalance, actualBalance);
+    }
+    
+    /**
+     * @notice Corrects user balance for a specific token
+     * @param user The user address
+     * @param token The token address
+     * @param newBalance The correct balance
+     */
+    function correctUserBalance(
+        address user,
+        address token,
+        uint256 newBalance
+    ) external onlyOwner {
+        // Track the difference to adjust the total vault balance
+        uint256 oldBalance = userBalances[user][token];
+        int256 balanceDifference = int256(newBalance) - int256(oldBalance);
+        
+        // Update user balance
+        userBalances[user][token] = newBalance;
+        
+        // Adjust vault balance - increase or decrease based on the difference
+        if (balanceDifference > 0) {
+            vaultBalances[token] += uint256(balanceDifference);
+        } else if (balanceDifference < 0) {
+            // Ensure we don't underflow
+            uint256 decreaseAmount = uint256(-balanceDifference);
+            if (vaultBalances[token] >= decreaseAmount) {
+                vaultBalances[token] -= decreaseAmount;
+            } else {
+                vaultBalances[token] = 0;
+            }
+        }
     }
 
     /**
