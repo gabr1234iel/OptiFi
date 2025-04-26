@@ -256,7 +256,7 @@ contract MetaMorphoAdapterTest is Test {
         // But in a fork test, some values might not update as expected
     }
     
-    function testGetAPY() public {
+    function testGetAPY() public view{
         // Get APY for USDC through adapter
         uint256 usdcAPY = adapter.getAPY(USDC);
         

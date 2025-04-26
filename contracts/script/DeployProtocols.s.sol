@@ -11,6 +11,8 @@ import "../src/adapters/CompoundV3Adapter.sol";
 import "../src/adapters/EulerV2Adapter.sol";
 import "../src/adapters/FluidProtocolAdapter.sol";
 import "../src/adapters/MetaMorphoAdapter.sol";
+import "../src/adapters/SkyLendingAdapter.sol";
+import "../src/adapters/SparkLendAdapter.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract DeployProtocols is Script {
@@ -23,6 +25,9 @@ contract DeployProtocols is Script {
     
     // Compound addresses
     address constant COMPOUND_REWARDS = 0x1B0e765F6224C21223AeA2af16c1C46E38885a40;
+
+    // SparkLend addresses
+    address constant SPARK_POOL = 0xC13e21B648A5Ee794902342038FF3aDAB66BE987;
     
     // Tokens
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
@@ -36,13 +41,15 @@ contract DeployProtocols is Script {
     address constant PYUSD = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
     address constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
     address constant USDE = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
-    address constant USDS = 0x45AC379F019E48ca5dAC02E54F406F99F5088099;
+    address constant USDS = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
     address constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     address constant RSETH = 0xA1290d69c65A6Fe4DF752f95823fae25cB99e5A7;
     address constant USD0 = 0x35D8949372D46B7a3D5A56006AE77B215fc69bC0;
     address constant USDL = 0x7751E2F4b8ae93EF6B79d86419d42FE3295A4559;
     address constant RUSD = 0x09D4214C03D01F49544C0448DBE3A27f768F2b34;
-    address constant EUSD = 0xA0d69E286B938e21CBf7E51D71F6A4c8918f482F;
+    address constant EUSD = 0xA0d69E286B938e21CBf7E51D71F6A4c8918f482F; 
+    address constant SUSDS = 0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD;
+
     
     // Aave V2 aTokens
     address constant A_USDC_V2 = 0xBcca60bB61934080951369a648Fb03DF4F96263C;
@@ -117,6 +124,14 @@ contract DeployProtocols is Script {
     address constant MM_STEAKUSDT = 0xbEef047a543E45807105E51A8BBEFCc5950fcfBa;
     address constant MM_USUALUSDC = 0xd63070114470f685b75B74D60EEc7c1113d33a3D;
 
+    // SparkLend aTokens
+    address constant SPARK_AUSDC = 0x377C3bd93f2a2984E1E7bE6A5C22c525eD4A4815; // SparkLend USDC aToken
+    address constant SPARK_ADAI = 0x4DEDf26112B3Ec8eC46e7E31EA5e123490B05B8B; // SparkLend DAI aToken
+    address constant SPARK_ARETH = 0x9985dF20D7e9103ECBCeb16a84956434B6f06ae8; // SparkLend rETH aToken
+    address constant SPARK_AWBTC = 0x4197ba364AE6698015AE5c1468f54087602715b2; // SparkLend WBTC aToken
+    address constant SPARK_AWETH = 0x59cD1C87501baa753d0B5B5Ab5D8416A45cD71DB; // SparkLend WETH aToken
+    address constant SPARK_AUSDS = 0xC02aB1A5eaA8d1B114EF786D9bde108cD4364359; // SparkLend USDS aToken
+
     function run() external {
         
         vm.startBroadcast(); 
@@ -146,6 +161,12 @@ contract DeployProtocols is Script {
         
         MetaMorphoAdapter metaMorphoAdapter = new MetaMorphoAdapter();
         console.log("MetaMorphoAdapter deployed at: ", address(metaMorphoAdapter));
+
+        SkyLendingAdapter skyLendingAdapter = new SkyLendingAdapter(SUSDS);
+        console.log("SkyLendingAdapter deployed at: ", address(skyLendingAdapter));
+
+        SparkLendAdapter sparkLendAdapter = new SparkLendAdapter(SPARK_POOL);
+        console.log("SparkLendAdapter deployed at: ", address(sparkLendAdapter));
         
         // Configure Aave V2 Adapter
         console.log("Configuring AaveV2Adapter...");
@@ -214,6 +235,8 @@ contract DeployProtocols is Script {
         metaMorphoAdapter.addVault(USDT, MM_STEAKUSDT, "STEAKUSDT");
         metaMorphoAdapter.addVault(USDC, MM_USUALUSDC, "USUALUSDC");
         metaMorphoAdapter.addVault(EUSD, MM_GTEUSDC, "GTEUSDC");
+
+
         
         // Set fee tiers for common token pairs in the vault
         console.log("Setting default fee tiers for common token pairs...");
@@ -234,6 +257,7 @@ contract DeployProtocols is Script {
         vault.setDefaultFeeTier(WETH, USDL, 100); // 0.01%
         vault.setDefaultFeeTier(WETH, RUSD, 100); // 0.01%
         vault.setDefaultFeeTier(WETH, EUSD, 100); // 0.01%
+
         
         // Set initial adapters for the vault
         console.log("Setting initial adapters in the vault...");
@@ -242,6 +266,8 @@ contract DeployProtocols is Script {
         vault.setAdapter(USDC, address(aaveV2Adapter));
         vault.setAdapter(USDT, address(aaveV2Adapter));
         vault.setAdapter(WBTC, address(aaveV2Adapter));
+        vault.setAdapter(DAI, address(metaMorphoAdapter));
+
         
         vm.stopBroadcast();
         

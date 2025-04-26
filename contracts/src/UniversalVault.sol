@@ -697,6 +697,7 @@ contract UniversalVault is Ownable, ReentrancyGuard {
         if (address(tokenAdapters[token]) != address(0)) {
             return tokenAdapters[token].getAPY(token);
         }
+        console.log("No adapter for token");
         return 0;
     }
 

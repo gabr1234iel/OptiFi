@@ -1,79 +1,144 @@
 // src/components/vault/UserHoldings.tsx
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '../../hooks/useWallet';
-import { getProtocolBalances } from '../../services/universalVaultService';
+import { getProtocolBalances, getUserVaultBalances } from '../../services/universalVaultService';
 
 interface HoldingsProps {
-  onSelectPool?: (poolName: string) => void;
+  onDepositClick?: () => void;
+  onWithdrawClick?: (token: string) => void;
 }
 
-const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
+interface HoldingData {
+  poolName: string;
+  token: string;
+  protocol: string;
+  balance: string;
+  yield: string;
+  apy: string;
+}
+
+const UserHoldings: React.FC<HoldingsProps> = ({ onDepositClick, onWithdrawClick }) => {
   const { isConnected, account } = useWallet();
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [holdings, setHoldings] = useState<any[]>([]);
+  const [holdings, setHoldings] = useState<HoldingData[]>([]);
   const [totalBalance, setTotalBalance] = useState<string>("0.00");
   const [totalYield, setTotalYield] = useState<string>("0.00");
+  
+  const calculateYield = (balance: string, apy: number): string => {
+    // Remove commas from the balance string
+    const cleanBalance = balance.replace(/,/g, '');
+    
+    // Calculate daily yield based on APY (APY / 365)
+    const dailyRate = apy / 36500; // Convert APY from basis points to daily rate
+    const dailyYield = parseFloat(cleanBalance) * dailyRate;
+    
+    // Multiply by 30 for a month of yield
+    const monthlyYield = dailyYield * 30;
+    
+    return monthlyYield.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
   
   useEffect(() => {
     const loadHoldings = async () => {
       if (isConnected && account) {
         setIsLoading(true);
         try {
-          // In a real app, this would call your service to get actual balances
-          // For now, we'll use mock data
-          const balances = await getProtocolBalances(account);
+          // Get user balances directly from vault contract
+          const vaultBalances = await getUserVaultBalances(account);
           
-          // Mock data
-          const mockHoldings = [
-            { 
-              poolName: 'STEAKUSDC', 
-              token: 'USDC', 
-              protocol: 'Morpho Blue', 
-              balance: '2,458.42', 
-              yield: '94.78', 
-              apy: '3.87' 
-            },
-            { 
-              poolName: 'REUSDC', 
-              token: 'USDC', 
-              protocol: 'Morpho Blue', 
-              balance: '1,350.00', 
-              yield: '65.21', 
-              apy: '4.82' 
-            },
-            { 
-              poolName: 'STEAKETH', 
-              token: 'WETH', 
-              protocol: 'Morpho Blue', 
-              balance: '3.24', 
-              yield: '0.11', 
-              apy: '3.56' 
-            },
-            { 
-              poolName: 'USDC', 
-              token: 'USDC', 
-              protocol: 'Aave V3', 
-              balance: '1,000.00', 
-              yield: '32.14', 
-              apy: '3.21' 
-            },
-          ];
+          // Get protocol balances (adapter-specific info)
+          const protocolData = await getProtocolBalances(account);
           
-          setHoldings(mockHoldings);
+          // Convert to the format needed for the UI
+          const holdingsData: HoldingData[] = [];
+          let totalValue = 0;
+          let totalYieldValue = 0;
           
-          // Calculate totals
-          const total = mockHoldings.reduce((sum, item) => {
-            // In a real app, you would convert everything to a common denominator like USD
-            // Here we'll just sum as if everything is in USD already
-            return sum + parseFloat(item.balance.replace(',', ''));
-          }, 0);
+          // First process vault balances 
+          for (const [token, balanceStr] of Object.entries(vaultBalances)) {
+            // Handle only non-zero balances
+            if (parseFloat(balanceStr) > 0) {
+              // For now, use a fixed APY for demonstration
+              const apy = Math.floor(Math.random() * 500) + 100; // Random APY between 1% and 6%
+              
+              // Calculate the yield based on APY
+              const yieldValue = calculateYield(balanceStr, apy);
+              
+              // For poolName, use a token as identifier
+              const poolName = `${token}_VAULT`;
+              
+              // Remove commas for calculation
+              const balanceNum = parseFloat(balanceStr.replace(/,/g, ''));
+              const yieldNum = parseFloat(yieldValue.replace(/,/g, ''));
+              
+              // Add to totals
+              totalValue += balanceNum;
+              totalYieldValue += yieldNum;
+              
+              // Add to holdings with "Universal Vault" as protocol
+              holdingsData.push({
+                poolName,
+                token,
+                protocol: "Universal Vault",
+                balance: balanceStr,
+                yield: yieldValue,
+                apy: (apy / 100).toFixed(2) // Convert basis points to percentage
+              });
+            }
+          }
           
-          const yieldTotal = mockHoldings.reduce((sum, item) => {
-            return sum + parseFloat(item.yield);
-          }, 0);
+          // Add protocol-specific holdings if available
+          for (const [protocolKey, tokenBalances] of Object.entries(protocolData)) {
+            // Process each token in this protocol
+            for (const [token, balanceStr] of Object.entries(tokenBalances)) {
+              if (parseFloat(balanceStr.replace(/,/g, '')) > 0) {
+                // For now, use a fixed APY for demonstration
+                const apy = Math.floor(Math.random() * 500) + 100; // Random APY between 1% and 6%
+                
+                // Calculate the yield based on APY
+                const yieldValue = calculateYield(balanceStr, apy);
+                
+                // For poolName, use a combination of protocol and token
+                const poolName = `${token}_${protocolKey}`;
+                
+                // Remove commas for calculation
+                const balanceNum = parseFloat(balanceStr.replace(/,/g, ''));
+                const yieldNum = parseFloat(yieldValue.replace(/,/g, ''));
+                
+                // Add to totals
+                totalValue += balanceNum;
+                totalYieldValue += yieldNum;
+                
+                // Use protocol name instead of enum
+                const protocolDisplay = protocolKey.replace(/_/g, ' ');
+                
+                holdingsData.push({
+                  poolName,
+                  token,
+                  protocol: protocolDisplay,
+                  balance: balanceStr,
+                  yield: yieldValue,
+                  apy: (apy / 100).toFixed(2) // Convert basis points to percentage
+                });
+              }
+            }
+          }
           
-          setTotalBalance(total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-          setTotalYield(yieldTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+          setHoldings(holdingsData);
+          
+          // Format totals
+          setTotalBalance(totalValue.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          }));
+          
+          setTotalYield(totalYieldValue.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          }));
           
         } catch (error) {
           console.error('Error loading holdings:', error);
@@ -84,6 +149,12 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
     };
     
     loadHoldings();
+    
+    // Set up an interval to reload holdings every 20 seconds
+    const interval = setInterval(loadHoldings, 20000);
+    
+    // Clean up the interval when component unmounts
+    return () => clearInterval(interval);
   }, [isConnected, account]);
 
   if (!isConnected) {
@@ -115,7 +186,7 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
           <p className="text-gray-500 mb-4">You don't have any holdings yet</p>
           <button 
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
-            onClick={() => {}}
+            onClick={() => onDepositClick && onDepositClick()}
           >
             Deposit Now
           </button>
@@ -139,7 +210,6 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pool</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Token</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Protocol</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Balance</th>
@@ -151,8 +221,7 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
               <tbody className="divide-y divide-gray-200">
                 {holdings.map((item, index) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.poolName}</td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{item.token}</td>
+                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.token}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{item.protocol}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">${item.balance}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-green-600">${item.yield}</td>
@@ -160,9 +229,9 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-right">
                       <button 
                         className="text-blue-600 hover:text-blue-800"
-                        onClick={() => onSelectPool && onSelectPool(item.poolName)}
+                        onClick={() => onWithdrawClick && onWithdrawClick(item.token)}
                       >
-                        Manage
+                        Withdraw
                       </button>
                     </td>
                   </tr>
@@ -173,10 +242,10 @@ const UserHoldings: React.FC<HoldingsProps> = ({ onSelectPool }) => {
           
           {/* Action Buttons */}
           <div className="mt-6 flex justify-end space-x-4">
-            <button className="px-4 py-2 border border-blue-600 text-blue-600 rounded-md hover:bg-blue-50 transition">
-              Withdraw All
-            </button>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">
+            <button 
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+              onClick={() => onDepositClick && onDepositClick()}
+            >
               Deposit More
             </button>
           </div>

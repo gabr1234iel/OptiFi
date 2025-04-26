@@ -1,23 +1,34 @@
 // src/app/dashboard/page.tsx
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '../../components/Header';
 import UniversalVaultInteraction from '../../components/UniversalVaultInteraction';
 import UserHoldings from '../../components/vault/UserHoldings';
 import { useWallet } from '../../hooks/useWallet';
 
 export default function DashboardPage() {
-    interface PoolDetailsType {
-        poolAddress: string;
-        underlyingToken: string;
-        protocol: number;
-        apy?: number; // APY in basis points
-      }
-  
-    const { isConnected } = useWallet();
-  
-  const [selectedPool, setSelectedPool] = useState<string>('');
-  
+  const { isConnected } = useWallet();
+  const [showDepositForm, setShowDepositForm] = useState(false);
+  const [withdrawToken, setWithdrawToken] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<string>('deposit');
+  const [activeToken, setActiveToken] = useState<string | undefined>(undefined);
+
+  // Handle when user clicks "Deposit Now" or "Deposit More"
+  const handleDepositClick = () => {
+    setActiveMode('deposit');
+    setActiveToken(undefined);
+    setShowDepositForm(true);
+    // If there's a token selected for withdrawal, clear it
+    setWithdrawToken(null);
+  };
+
+  // Handle when user clicks "Withdraw" on a specific token
+  const handleWithdrawClick = (token: string) => {
+    setActiveMode('withdraw');
+    setActiveToken(token);
+    setWithdrawToken(token);
+    setShowDepositForm(true);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -64,46 +75,30 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
               {/* User Holdings Component */}
-              <UserHoldings onSelectPool={setSelectedPool} />
+              <UserHoldings 
+                onDepositClick={handleDepositClick}
+                onWithdrawClick={handleWithdrawClick}
+              />
               
               {/* Recent Activity */}
               <div className="bg-white rounded-lg shadow-md p-6 mt-6">
                 <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Activity</h2>
+                
+                {/* Activity will come from real transactions in the full implementation */}
                 <div className="space-y-4">
-                  {/* Mock activity data */}
-                  <div className="border-b pb-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-900">Deposit USDC</span>
-                      <span className="text-gray-500">1 hour ago</span>
-                    </div>
-                    <div className="mt-1 text-sm text-gray-600">
-                      Deposited 1,000 USDC into STEAKUSDC pool
-                    </div>
-                  </div>
-                  <div className="border-b pb-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-900">Swap and Deposit</span>
-                      <span className="text-gray-500">2 days ago</span>
-                    </div>
-                    <div className="mt-1 text-sm text-gray-600">
-                      Swapped 2 ETH for WETH and deposited into STEAKETH pool
-                    </div>
-                  </div>
-                  <div className="border-b pb-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-900">Yield Harvested</span>
-                      <span className="text-gray-500">3 days ago</span>
-                    </div>
-                    <div className="mt-1 text-sm text-gray-600">
-                      Harvested 58.21 USDC yield from Aave V3
-                    </div>
+                  <div className="text-center py-4 text-gray-500">
+                    <p>Recent transaction activity will appear here after you make deposits or withdrawals.</p>
                   </div>
                 </div>
               </div>
             </div>
             
             <div>
-              <UniversalVaultInteraction/>
+              {/* Simplified interaction component based on user actions */}
+              <UniversalVaultInteraction 
+                initialMode={activeMode}
+                initialToken={activeToken}
+              />
             </div>
           </div>
         )}

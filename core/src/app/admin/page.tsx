@@ -2,7 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../../components/Header';
 import { useWallet } from '../../hooks/useWallet';
-import { getAvailablePools, getPoolDetails } from '../../services/universalVaultService';
+import { 
+  getAvailablePools, 
+  getPoolDetails, 
+  getProtocolName, 
+  getTokenSymbol, 
+  getUniversalVaultContract,
+  getTokenAdapter,
+  PROTOCOL_ENUM
+} from '../../services/universalVaultService';
+import { ethers } from 'ethers';
 
 // Token addresses
 const TOKEN_ADDRESSES = {
@@ -11,17 +20,18 @@ const TOKEN_ADDRESSES = {
   DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
   WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
   WSTETH: '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0',
+  WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
 };
 
-// Protocol enum mapping
+// Protocol definitions with display names and colors
 const PROTOCOLS = [
-  { id: 0, name: 'AAVE_V2' },
-  { id: 1, name: 'AAVE_V3' },
-  { id: 2, name: 'MORPHO_BLUE' },
-  { id: 3, name: 'COMPOUND_V2' },
-  { id: 4, name: 'COMPOUND_V3' },
-  { id: 5, name: 'EULER_V2' },
-  { id: 6, name: 'FLUID' },
+  { id: 0, name: 'AAVE_V2', displayName: 'Aave V2' },
+  { id: 1, name: 'AAVE_V3', displayName: 'Aave V3' },
+  { id: 2, name: 'MORPHO_BLUE', displayName: 'Morpho Blue' },
+  { id: 3, name: 'COMPOUND_V2', displayName: 'Compound V2' },
+  { id: 4, name: 'COMPOUND_V3', displayName: 'Compound V3' },
+  { id: 5, name: 'EULER_V2', displayName: 'Euler V2' },
+  { id: 6, name: 'FLUID', displayName: 'Fluid Protocol' },
 ];
 
 export default function AdminDashboard() {
@@ -81,7 +91,7 @@ export default function AdminDashboard() {
     loadPoolsData();
   }, [isConnected]);
   
-  // Handler for adding a new pool
+  // Handler for adding a new pool (this would be implemented in a real adapter)
   const handleAddPool = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -95,20 +105,37 @@ export default function AdminDashboard() {
     setIsError(false);
     
     try {
-      // Here you would call your contract to add a new pool
-      // This is a mock implementation since we don't have the actual function
-      // In a real implementation, you would use a service function
+      // In a production app, you would call the contract to add a new pool
+      // This is a mock implementation for the admin interface
       
-      // Example:
-      // await addPoolToVault(
-      //   newPoolName,
-      //   TOKEN_ADDRESSES[newPoolToken as keyof typeof TOKEN_ADDRESSES],
-      //   newPoolAddress,
-      //   newPoolProtocol
-      // );
+      // Check if the pool already exists
+      if (availablePools.includes(newPoolName)) {
+        throw new Error('Pool with this name already exists');
+      }
       
-      // Mock success
+      // Get the token address
+      const tokenAddress = TOKEN_ADDRESSES[newPoolToken as keyof typeof TOKEN_ADDRESSES];
+      if (!tokenAddress) {
+        throw new Error('Invalid token selected');
+      }
+      
+      // In a real implementation, this would call an addProtocolAdapter function
+      // For now, we'll simulate success
       setTimeout(() => {
+        // Add the new pool to our local state
+        const updatedPools = [...availablePools, newPoolName];
+        setAvailablePools(updatedPools);
+        
+        // Add the details
+        const updatedDetails = {...poolDetails};
+        updatedDetails[newPoolName] = {
+          poolAddress: newPoolAddress,
+          underlyingToken: tokenAddress,
+          protocol: newPoolProtocol,
+          apy: Math.floor(Math.random() * 500) + 100 // Random APY for demo
+        };
+        setPoolDetails(updatedDetails);
+        
         setStatusMessage(`Successfully added pool: ${newPoolName}`);
         
         // Reset form
@@ -116,9 +143,6 @@ export default function AdminDashboard() {
         setNewPoolToken('USDC');
         setNewPoolProtocol(0);
         setNewPoolAddress('');
-        
-        // Reload pools data
-        // In a real app, you would reload the pools data here
       }, 1000);
       
     } catch (error) {
@@ -142,24 +166,32 @@ export default function AdminDashboard() {
     setIsError(false);
     
     try {
-      // Here you would call your contract to change the adapter
-      // This is a mock implementation
+      // Get the vault contract
+      const vaultContract = getUniversalVaultContract();
+      if (!vaultContract) {
+        throw new Error('Vault contract not available');
+      }
       
-      // Example:
-      // await setTokenAdapter(
-      //   TOKEN_ADDRESSES[selectedToken as keyof typeof TOKEN_ADDRESSES],
-      //   selectedAdapter
-      // );
+      // Get the token address
+      const tokenAddress = TOKEN_ADDRESSES[selectedToken as keyof typeof TOKEN_ADDRESSES];
+      if (!tokenAddress) {
+        throw new Error('Invalid token selected');
+      }
       
-      // Mock success
-      setTimeout(() => {
-        setStatusMessage(`Successfully changed adapter for ${selectedToken}`);
-        
-        // Reset form
-        setSelectedToken('USDC');
-        setSelectedAdapter('');
-        
-      }, 1000);
+      // Validate the adapter address
+      if (!ethers.utils.isAddress(selectedAdapter)) {
+        throw new Error('Invalid adapter address');
+      }
+      
+      // Call the setAdapter function
+      const tx = await vaultContract.setAdapter(tokenAddress, selectedAdapter);
+      await tx.wait();
+      
+      setStatusMessage(`Successfully changed adapter for ${selectedToken} to ${selectedAdapter}`);
+      
+      // Reset form
+      setSelectedToken('USDC');
+      setSelectedAdapter('');
       
     } catch (error) {
       console.error('Failed to change adapter:', error);
@@ -182,21 +214,25 @@ export default function AdminDashboard() {
     setIsError(false);
     
     try {
-      // Here you would call your contract to set the fee tier
-      // This is a mock implementation
+      // Get the vault contract
+      const vaultContract = getUniversalVaultContract();
+      if (!vaultContract) {
+        throw new Error('Vault contract not available');
+      }
       
-      // Example:
-      // await setDefaultFeeTier(
-      //   TOKEN_ADDRESSES[tokenA as keyof typeof TOKEN_ADDRESSES],
-      //   TOKEN_ADDRESSES[tokenB as keyof typeof TOKEN_ADDRESSES],
-      //   feeTier
-      // );
+      // Get the token addresses
+      const tokenAAddress = TOKEN_ADDRESSES[tokenA as keyof typeof TOKEN_ADDRESSES];
+      const tokenBAddress = TOKEN_ADDRESSES[tokenB as keyof typeof TOKEN_ADDRESSES];
       
-      // Mock success
-      setTimeout(() => {
-        setStatusMessage(`Successfully set fee tier for ${tokenA}/${tokenB} to ${feeTier/10000}%`);
-        
-      }, 1000);
+      if (!tokenAAddress || !tokenBAddress) {
+        throw new Error('Invalid token selected');
+      }
+      
+      // Call the setDefaultFeeTier function
+      const tx = await vaultContract.setDefaultFeeTier(tokenAAddress, tokenBAddress, feeTier);
+      await tx.wait();
+      
+      setStatusMessage(`Successfully set fee tier for ${tokenA}/${tokenB} to ${feeTier/10000}%`);
       
     } catch (error) {
       console.error('Failed to set fee tier:', error);
@@ -205,20 +241,35 @@ export default function AdminDashboard() {
     }
   };
   
-  // Function to find protocol name by ID
-  const getProtocolName = (id: number): string => {
-    return PROTOCOLS.find(p => p.id === id)?.name || 'Unknown';
+  // Function to check if the current account is the vault owner
+  const checkIsOwner = async () => {
+    if (!isConnected || !account) return false;
+    
+    try {
+      const vaultContract = getUniversalVaultContract();
+      if (!vaultContract) return false;
+      
+      const owner = await vaultContract.owner();
+      return owner.toLowerCase() === account.toLowerCase();
+    } catch (error) {
+      console.error('Error checking owner:', error);
+      return false;
+    }
   };
   
-  // Function to find token symbol by address
-  const getTokenSymbol = (address: string): string => {
-    for (const [symbol, addr] of Object.entries(TOKEN_ADDRESSES)) {
-      if (addr.toLowerCase() === address.toLowerCase()) {
-        return symbol;
-      }
+  // Check if the current account is the owner
+  const [isOwner, setIsOwner] = useState(false);
+  
+  useEffect(() => {
+    const checkOwnership = async () => {
+      const isOwnerResult = await checkIsOwner();
+      setIsOwner(isOwnerResult);
+    };
+    
+    if (isConnected && account) {
+      checkOwnership();
     }
-    return 'Unknown';
-  };
+  }, [isConnected, account]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -227,14 +278,21 @@ export default function AdminDashboard() {
       <main className="container mx-auto px-4 py-8 flex-grow">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Universal Vault Admin Dashboard</h1>
+          
           {!isConnected && (
             <div className="mt-4 p-4 bg-yellow-100 rounded-lg border border-yellow-300">
               <p className="text-yellow-800">Please connect your wallet with admin access to manage the vault system.</p>
             </div>
           )}
+          
+          {isConnected && !isOwner && (
+            <div className="mt-4 p-4 bg-red-100 rounded-lg border border-red-300">
+              <p className="text-red-800">Your connected wallet does not have admin privileges.</p>
+            </div>
+          )}
         </div>
         
-        {isConnected && (
+        {isConnected && isOwner && (
           <>
             {/* Tab Navigation */}
             <div className="flex border-b mb-6">
@@ -294,6 +352,7 @@ export default function AdminDashboard() {
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Pool Address</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Underlying Token</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Protocol</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">APY</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Actions</th>
                           </tr>
                         </thead>
@@ -316,6 +375,11 @@ export default function AdminDashboard() {
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                   {details.protocol !== undefined ? 
                                     getProtocolName(details.protocol) : 
+                                    'N/A'}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {details.apy !== undefined ? 
+                                    `${(details.apy / 100).toFixed(2)}%` : 
                                     'N/A'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -376,7 +440,7 @@ export default function AdminDashboard() {
                         required
                       >
                         {PROTOCOLS.map((protocol) => (
-                          <option key={protocol.id} value={protocol.id}>{protocol.name}</option>
+                          <option key={protocol.id} value={protocol.id}>{protocol.displayName}</option>
                         ))}
                       </select>
                     </div>
@@ -414,6 +478,46 @@ export default function AdminDashboard() {
                   <p className="text-gray-600 mb-4">
                     Configure which protocol adapter to use for each token. This allows the vault to optimize for the highest yield.
                   </p>
+                  
+                  {/* Current Adapters Section */}
+                  <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800">Current Adapters</h3>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead>
+                          <tr className="bg-gray-50">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Token</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Adapter</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Protocol</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {Object.entries(TOKEN_ADDRESSES).map(([token, address]) => {
+                            // This would normally fetch the current adapter, but we'll mock it
+                            const protocol = Object.entries(poolDetails).find(([_, detail]) => 
+                              detail.underlyingToken?.toLowerCase() === address.toLowerCase()
+                            )?.[1]?.protocol;
+                            
+                            const protocolName = protocol !== undefined ? getProtocolName(protocol) : 'None';
+                            
+                            return (
+                              <tr key={token} className="hover:bg-gray-50">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{token}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                                    {protocol !== undefined 
+                                      ? PROTOCOLS.find(p => p.id === protocol)?.displayName + ' Adapter' 
+                                      : 'Not Set'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{protocolName}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                   
                   <div className="bg-white p-6 rounded-lg shadow-sm">
                     <h3 className="text-lg font-semibold mb-4 text-gray-800">Change Token Adapter</h3>
@@ -547,7 +651,13 @@ export default function AdminDashboard() {
                     {/* Total Value Locked */}
                     <div className="bg-white p-6 rounded-lg shadow-sm">
                       <h3 className="text-lg font-semibold mb-2 text-gray-800">Total Value Locked</h3>
-                      <p className="text-3xl font-bold text-blue-600">$1,452,367</p>
+                      <p className="text-3xl font-bold text-blue-600">
+                        {/* This would be calculated from real contract data */}
+                        ${(Object.values(poolDetails).reduce((sum, pool) => sum + Math.random() * 100000, 0)).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </p>
                       <p className="text-sm text-gray-500 mt-1">+5.3% from last week</p>
                     </div>
                     
@@ -555,13 +665,16 @@ export default function AdminDashboard() {
                     <div className="bg-white p-6 rounded-lg shadow-sm">
                       <h3 className="text-lg font-semibold mb-2 text-gray-800">Active Pools</h3>
                       <p className="text-3xl font-bold text-blue-600">{availablePools.length}</p>
-                      <p className="text-sm text-gray-500 mt-1">Across 4 protocols</p>
+                      <p className="text-sm text-gray-500 mt-1">Across {new Set(Object.values(poolDetails).map(d => d.protocol)).size} protocols</p>
                     </div>
                     
                     {/* Total Users */}
                     <div className="bg-white p-6 rounded-lg shadow-sm">
                       <h3 className="text-lg font-semibold mb-2 text-gray-800">Total Users</h3>
-                      <p className="text-3xl font-bold text-blue-600">247</p>
+                      <p className="text-3xl font-bold text-blue-600">
+                        {/* This would be calculated from real contract data */}
+                        {Math.floor(Math.random() * 200) + 50}
+                      </p>
                       <p className="text-sm text-gray-500 mt-1">+12 in the last 24 hours</p>
                     </div>
                   </div>
@@ -570,49 +683,26 @@ export default function AdminDashboard() {
                     <h3 className="text-lg font-semibold mb-4 text-gray-800">Protocol Distribution</h3>
                     
                     <div className="space-y-4">
-                      {/* AAVE */}
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">AAVE V3</span>
-                          <span className="text-sm font-medium text-gray-700">45%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: '45%' }}></div>
-                        </div>
-                      </div>
-                      
-                      {/* Morpho Blue */}
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">Morpho Blue</span>
-                          <span className="text-sm font-medium text-gray-700">30%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: '30%' }}></div>
-                        </div>
-                      </div>
-                      
-                      {/* Compound */}
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">Compound V3</span>
-                          <span className="text-sm font-medium text-gray-700">15%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: '15%' }}></div>
-                        </div>
-                      </div>
-                      
-                      {/* Euler */}
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">Euler V2</span>
-                          <span className="text-sm font-medium text-gray-700">10%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: '10%' }}></div>
-                        </div>
-                      </div>
+                      {/* Calculate protocol distributions */}
+                      {PROTOCOLS.slice(0, 5).map(protocol => {
+                        // Count pools for this protocol
+                        const poolCount = Object.values(poolDetails).filter(d => d.protocol === protocol.id).length;
+                        const percentage = availablePools.length > 0 
+                          ? Math.round((poolCount / availablePools.length) * 100) 
+                          : 0;
+                        
+                        return (
+                          <div key={protocol.id}>
+                            <div className="flex justify-between mb-1">
+                              <span className="text-sm font-medium text-gray-700">{protocol.displayName}</span>
+                              <span className="text-sm font-medium text-gray-700">{percentage}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                              <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${percentage}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

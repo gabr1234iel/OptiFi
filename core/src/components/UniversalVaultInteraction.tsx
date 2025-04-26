@@ -2,39 +2,44 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '../hooks/useWallet';
 import VaultActionTabs from './vault/VaultActionTabs';
-import PoolSelector from './vault/PoolSelector';
 import TokenSelector from './vault/TokenSelector';
 import SwapSettings from './vault/SwapSettings';
-import TransactionForm from './vault/TransactionForm';
-import ProtocolComparisonTable from './vault/ProtocolComparisonTable';
-import { getAvailablePools, getPoolDetails } from '../services/universalVaultService';
+import { 
+  deposit, 
+  withdraw, 
+  swapTokens, 
+  swapTokensMultihop,
+  swapAndDeposit,
+  getUserTokenBalances,
+  hasActiveAdapter
+} from '../services/universalVaultService';
 
-interface PoolDetailsType {
-  poolAddress: string;
-  underlyingToken: string;
-  protocol: number;
-  apy?: number; // APY in basis points
+interface UniversalVaultInteractionProps {
+  initialMode?: string;
+  initialToken?: string;
 }
 
-const UniversalVaultInteraction: React.FC = () => {
+const UniversalVaultInteraction: React.FC<UniversalVaultInteractionProps> = ({ 
+  initialMode = 'deposit',
+  initialToken
+}) => {
   const { isConnected } = useWallet();
   
   // State for interaction mode
-  const [interactionMode, setInteractionMode] = useState<string>('deposit'); // 'deposit', 'withdraw', 'swap'
+  const [interactionMode, setInteractionMode] = useState<string>(initialMode);
   
   // State for tokens
-  const [fromToken, setFromToken] = useState<string>('USDC');
-  const [toToken, setToToken] = useState<string>('WETH');
-  
-  // State for pool selection
-  const [availablePools, setAvailablePools] = useState<string[]>([]);
-  const [filterPoolsByToken, setFilterPoolsByToken] = useState<boolean>(true);
-  const [filteredPools, setFilteredPools] = useState<string[]>([]);
-  const [selectedPool, setSelectedPool] = useState<string>('');
-  const [poolDetails, setPoolDetails] = useState<Record<string, PoolDetailsType>>({});
+  const [fromToken, setFromToken] = useState<string>(initialToken || 'USDC');
+  const [toToken, setToToken] = useState<string>(initialToken || 'USDC');
   
   // State for amount
   const [amount, setAmount] = useState<string>('');
+  
+  // State for user balances
+  const [userBalances, setUserBalances] = useState<Record<string, string>>({});
+  
+  // State for active adapters
+  const [tokenHasAdapter, setTokenHasAdapter] = useState<Record<string, boolean>>({});
   
   // State for swap path (for multihop)
   const [useMultihop, setUseMultihop] = useState<boolean>(false);
@@ -47,82 +52,138 @@ const UniversalVaultInteraction: React.FC = () => {
   const [transactionHash, setTransactionHash] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   
-  // State for protocol comparison
-  const [showProtocolComparison, setShowProtocolComparison] = useState<boolean>(false);
-  
-  // Load available pools
+  // Update based on props changes
   useEffect(() => {
-    const loadPools = async () => {
+    if (initialMode) {
+      setInteractionMode(initialMode);
+    }
+    
+    if (initialToken) {
+      if (initialMode === 'withdraw') {
+        setToToken(initialToken);
+      } else {
+        setFromToken(initialToken);
+      }
+    }
+  }, [initialMode, initialToken]);
+  
+  // Load user balances
+  useEffect(() => {
+    const loadUserBalances = async () => {
       if (isConnected) {
         try {
-          const pools = await getAvailablePools();
-          setAvailablePools(pools);
+          const balances = await getUserTokenBalances();
+          setUserBalances(balances);
           
-          // Load details for each pool
-          const details: Record<string, PoolDetailsType> = {};
-          for (const pool of pools) {
-            const poolDetail = await getPoolDetails(pool);
-            details[pool] = {
-              ...poolDetail,
-              protocol: Number(poolDetail.protocol), // Convert protocol to number
-            };
-            
-            // Add mock APY data (in a real app, this would come from the contract)
-            details[pool].apy = Math.floor(Math.random() * 1000) + 100; // Random APY between 1% and 11%
+          // Check which tokens have active adapters
+          const adapterStatus: Record<string, boolean> = {};
+          for (const token of Object.keys(balances)) {
+            adapterStatus[token] = await hasActiveAdapter(token);
           }
-          
-          setPoolDetails(details);
-          
-          // Set initially filtered pools
-          filterPools(pools, details, toToken, filterPoolsByToken);
-          
+          setTokenHasAdapter(adapterStatus);
         } catch (error) {
-          console.error('Error loading pools:', error);
-          setErrorMessage('Failed to load pools');
+          console.error('Error loading user balances:', error);
         }
       }
     };
     
-    loadPools();
-  }, [isConnected]);
+    loadUserBalances();
+  }, [isConnected, transactionHash]); // Reload when transaction completes
   
-  // Filter pools when token or filter option changes
-  useEffect(() => {
-    filterPools(availablePools, poolDetails, toToken, filterPoolsByToken);
-  }, [toToken, filterPoolsByToken, availablePools, poolDetails]);
-  
-  // Function to filter pools based on token and filter option
-  const filterPools = (
-    pools: string[], 
-    details: Record<string, PoolDetailsType>, 
-    tokenSymbol: string, 
-    shouldFilter: boolean
-  ) => {
-    if (!shouldFilter) {
-      setFilteredPools(pools);
-      if (pools.length > 0 && !selectedPool) {
-        setSelectedPool(pools[0]);
-      }
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!isConnected) {
+      setErrorMessage('Please connect your wallet first');
       return;
     }
     
-    // Filter pools by underlying token
-    const filtered = pools.filter(pool => {
-      const poolDetail = details[pool];
-      if (!poolDetail) return false;
+    if (!amount || parseFloat(amount) <= 0) {
+      setErrorMessage('Please enter a valid amount');
+      return;
+    }
+    
+    setIsProcessing(true);
+    setTransactionHash('');
+    setErrorMessage('');
+    
+    try {
+      let txHash = '';
       
-      // In a real app, compare actual addresses
-      // Here we're simplifying by just checking if the pool name contains the token symbol
-      return pool.includes(tokenSymbol);
-    });
-    
-    setFilteredPools(filtered);
-    
-    // Auto-select the first filtered pool if there are results and none is selected
-    if (filtered.length > 0 && (!selectedPool || !filtered.includes(selectedPool))) {
-      setSelectedPool(filtered[0]);
-    } else if (filtered.length === 0) {
-      setSelectedPool('');
+      // Handle different interaction modes
+      if (interactionMode === 'deposit') {
+        // Check if the token has an active adapter
+        if (!tokenHasAdapter[toToken]) {
+          throw new Error(`No active adapter for ${toToken}. Please contact admin to set up an adapter for this token.`);
+        }
+        
+        if (fromToken === toToken) {
+          // Direct deposit without swap - automatically uses the active adapter
+          console.log(`Depositing ${amount} ${fromToken} to vault`);
+          txHash = await deposit(fromToken, amount);
+        } else {
+          // Swap and deposit
+          if (useMultihop) {
+            // Multi-hop swap and deposit
+            console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken} and depositing`);
+            const path = [fromToken, intermediateToken, toToken];
+            const fees = [fee1, fee2];
+            txHash = await swapTokensMultihop(path, fees, amount);
+            // Then deposit the result (in a production app, you'd get the actual output amount)
+            // This step is automatically handled by the vault when using swapAndDeposit
+          } else {
+            // Direct swap and deposit
+            console.log(`Swapping ${amount} ${fromToken} to ${toToken} and depositing`);
+            txHash = await swapAndDeposit(fromToken, toToken, amount);
+          }
+        }
+      } else if (interactionMode === 'withdraw') {
+        // Direct withdrawal - no pool selection needed
+        console.log(`Withdrawing ${amount} ${toToken} from vault`);
+        txHash = await withdraw(toToken, amount);
+      } else if (interactionMode === 'swap') {
+        if (useMultihop) {
+          // Multi-hop swap
+          console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken}`);
+          const path = [fromToken, intermediateToken, toToken];
+          const fees = [fee1, fee2];
+          txHash = await swapTokensMultihop(path, fees, amount);
+        } else {
+          // Direct swap
+          console.log(`Swapping ${amount} ${fromToken} to ${toToken}`);
+          txHash = await swapTokens(fromToken, toToken, amount);
+        }
+      }
+      
+      // Success - clear form and set tx hash
+      setTransactionHash(txHash);
+      setAmount('');
+      
+      // Reload balances after successful transaction
+      setTimeout(async () => {
+        const balances = await getUserTokenBalances();
+        setUserBalances(balances);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Transaction error:', error);
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Get max balance for current token
+  const getMaxBalance = () => {
+    if (interactionMode === 'withdraw') {
+      // For withdrawals, we'd need to get the user's balance in the vault
+      // This would be implemented in a real app
+      return '0'; // Placeholder
+    } else {
+      // For deposits and swaps, use the user's wallet balance
+      const token = interactionMode === 'deposit' ? fromToken : fromToken;
+      return userBalances[token] || '0';
     }
   };
   
@@ -137,66 +198,7 @@ const UniversalVaultInteraction: React.FC = () => {
       />
       
       {/* Transaction Form */}
-      <TransactionForm
-        isConnected={isConnected}
-        interactionMode={interactionMode}
-        fromToken={fromToken}
-        toToken={toToken}
-        amount={amount}
-        selectedPool={selectedPool}
-        poolDetails={poolDetails}
-        useMultihop={useMultihop}
-        intermediateToken={intermediateToken}
-        fee1={fee1}
-        fee2={fee2}
-        isProcessing={isProcessing}
-        setIsProcessing={setIsProcessing}
-        setTransactionHash={setTransactionHash}
-        setErrorMessage={setErrorMessage}
-        setAmount={setAmount}
-      >
-        {/* Protocol Comparison Toggle */}
-        {interactionMode === 'deposit' && (
-          <button 
-            type="button"
-            onClick={() => setShowProtocolComparison(!showProtocolComparison)}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center mb-4"
-          >
-            {showProtocolComparison ? 'Hide' : 'Show'} Protocol Comparison
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        )}
-        
-        {/* Protocol Comparison Table */}
-        {showProtocolComparison && interactionMode === 'deposit' && (
-          <ProtocolComparisonTable 
-            onSelectProtocol={(protocol) => {
-              // Find a pool for this protocol and select it
-              const poolsForProtocol = Object.entries(poolDetails)
-                .filter(([_, details]) => details.protocol === protocol)
-                .map(([poolName]) => poolName);
-              
-              if (poolsForProtocol.length > 0) {
-                setSelectedPool(poolsForProtocol[0]);
-              }
-            }} 
-          />
-        )}
-        
-        {/* Pool Selection (for deposit/withdraw) */}
-        {interactionMode !== 'swap' && (
-          <PoolSelector
-            filteredPools={filteredPools}
-            selectedPool={selectedPool}
-            poolDetails={poolDetails}
-            onSelectPool={setSelectedPool}
-            filterPoolsByToken={filterPoolsByToken}
-            onToggleFilter={() => setFilterPoolsByToken(!filterPoolsByToken)}
-          />
-        )}
-        
+      <form onSubmit={handleSubmit} className="space-y-4">
         {/* Token Selection */}
         <TokenSelector
           interactionMode={interactionMode}
@@ -225,13 +227,28 @@ const UniversalVaultInteraction: React.FC = () => {
               <button
                 type="button"
                 className="h-full px-3 text-xs text-blue-600 hover:bg-blue-50 rounded-r-md"
-                onClick={() => setAmount('100')} // Example - in a real app would set to max balance
+                onClick={() => setAmount(getMaxBalance())}
               >
                 MAX
               </button>
             </div>
           </div>
+          {userBalances[fromToken] && interactionMode !== 'withdraw' && (
+            <p className="text-xs text-gray-500 mt-1">
+              Balance: {userBalances[fromToken]} {fromToken}
+            </p>
+          )}
         </div>
+        
+        {/* Token Warning */}
+        {interactionMode === 'deposit' && !tokenHasAdapter[toToken] && (
+          <div className="p-3 bg-yellow-100 text-yellow-800 rounded-md mb-4">
+            <p className="text-sm">
+              <strong>Warning:</strong> There is no active adapter for {toToken}. 
+              Your funds won't earn yield until an administrator sets up an adapter for this token.
+            </p>
+          </div>
+        )}
         
         {/* Swap Settings */}
         {((interactionMode === 'swap') || (interactionMode === 'deposit' && fromToken !== toToken)) && (
@@ -248,7 +265,24 @@ const UniversalVaultInteraction: React.FC = () => {
             toToken={toToken}
           />
         )}
-      </TransactionForm>
+        
+        {/* Submit Button */}
+        <button
+          type="submit"
+          disabled={isProcessing || !isConnected}
+          className={`w-full py-3 px-4 rounded-md transition ${
+            isProcessing ? 'bg-gray-400 text-white cursor-not-allowed' :
+            !isConnected ? 'bg-gray-400 text-white cursor-not-allowed' :
+            'bg-blue-600 text-white hover:bg-blue-700'
+          }`}
+        >
+          {isProcessing ? 'Processing...' : (
+            !isConnected ? 'Connect Wallet to Continue' :
+            interactionMode === 'deposit' ? 'Deposit' :
+            interactionMode === 'withdraw' ? 'Withdraw' : 'Swap'
+          )}
+        </button>
+      </form>
       
       {/* Transaction Status */}
       {transactionHash && (
@@ -257,6 +291,16 @@ const UniversalVaultInteraction: React.FC = () => {
           <p className="text-sm break-all">
             Transaction Hash: {transactionHash}
           </p>
+          <div className="mt-2">
+            <a 
+              href={`https://etherscan.io/tx/${transactionHash}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              View on Etherscan
+            </a>
+          </div>
         </div>
       )}
       

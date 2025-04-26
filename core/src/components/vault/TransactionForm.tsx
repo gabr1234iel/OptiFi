@@ -1,14 +1,17 @@
-// src/components/vault/TransactionForm.tsx
 import React from 'react';
 import { 
   swapTokens,
   swapTokensMultihop,
-  depositToAave,
-  withdrawFromAave,
+  deposit,
+  withdraw,
   depositToMorphoBlue,
   withdrawFromMorphoBlue,
   swapAndDeposit,
-  swapMultihopAndDeposit
+  swapMultihopAndDeposit,
+  depositToAave,
+  withdrawFromAave,
+  getPoolNameForTokenAndProtocol,
+  PROTOCOL_ENUM
 } from '../../services/universalVaultService';
 
 interface PoolDetailsType {
@@ -80,35 +83,51 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       
       // Handle different interaction modes
       if (interactionMode === 'deposit') {
-        if (!selectedPool) {
-          throw new Error('Please select a pool');
-        }
-        
-        const details = poolDetails[selectedPool];
-        if (!details) {
-          throw new Error('Pool details not available');
+        if (!selectedPool && toToken) {
+          // If no pool selected but token is selected, find one
+          const autoPoolName = getPoolNameForTokenAndProtocol(toToken, PROTOCOL_ENUM.AAVE_V3) || 
+                              getPoolNameForTokenAndProtocol(toToken, PROTOCOL_ENUM.MORPHO_BLUE);
+          
+          if (!autoPoolName) {
+            throw new Error('Please select a pool or a supported token');
+          }
+          
+          console.log(`Auto-selected pool: ${autoPoolName} for ${toToken}`);
         }
         
         if (fromToken === toToken) {
           // Direct deposit without swap
-          if (details.protocol === 0 || details.protocol === 1) {
-            // Aave V2 or V3
-            txHash = await depositToAave(fromToken, amount);
-          } else if (details.protocol === 2) {
-            // Morpho Blue
-            txHash = await depositToMorphoBlue(selectedPool, amount);
+          const details = poolDetails[selectedPool];
+          
+          if (details) {
+            // Use specific protocol deposit logic
+            if (details.protocol === PROTOCOL_ENUM.AAVE_V2 || details.protocol === PROTOCOL_ENUM.AAVE_V3) {
+              console.log(`Depositing ${amount} ${fromToken} to Aave`);
+              txHash = await depositToAave(fromToken, amount);
+            } else if (details.protocol === PROTOCOL_ENUM.MORPHO_BLUE) {
+              console.log(`Depositing ${amount} ${fromToken} to Morpho Blue pool ${selectedPool}`);
+              txHash = await depositToMorphoBlue(selectedPool, amount);
+            } else {
+              // Default deposit logic for other protocols
+              console.log(`Depositing ${amount} ${fromToken} to vault`);
+              txHash = await deposit(fromToken, amount);
+            }
           } else {
-            txHash = await depositToMorphoBlue(selectedPool, amount); // Default to Morpho for demo
+            // If no pool details, use generic deposit
+            console.log(`Depositing ${amount} ${fromToken} to vault`);
+            txHash = await deposit(fromToken, amount);
           }
         } else {
           // Swap and deposit
           if (useMultihop) {
             // Multi-hop swap and deposit
+            console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken} and depositing`);
             const path = [fromToken, intermediateToken, toToken];
             const fees = [fee1, fee2];
             txHash = await swapMultihopAndDeposit(path, fees, selectedPool, amount);
           } else {
             // Direct swap and deposit
+            console.log(`Swapping ${amount} ${fromToken} to ${toToken} and depositing`);
             txHash = await swapAndDeposit(fromToken, selectedPool, amount);
           }
         }
@@ -118,31 +137,40 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         }
         
         const details = poolDetails[selectedPool];
-        if (!details) {
-          throw new Error('Pool details not available');
-        }
         
-        if (details.protocol === 0 || details.protocol === 1) {
-          // Aave V2 or V3
-          txHash = await withdrawFromAave(toToken, amount);
-        } else if (details.protocol === 2) {
-          // Morpho Blue
-          txHash = await withdrawFromMorphoBlue(selectedPool, amount);
+        if (details) {
+          // Use specific protocol withdrawal logic
+          if (details.protocol === PROTOCOL_ENUM.AAVE_V2 || details.protocol === PROTOCOL_ENUM.AAVE_V3) {
+            console.log(`Withdrawing ${amount} ${toToken} from Aave`);
+            txHash = await withdrawFromAave(toToken, amount);
+          } else if (details.protocol === PROTOCOL_ENUM.MORPHO_BLUE) {
+            console.log(`Withdrawing ${amount} ${toToken} from Morpho Blue pool ${selectedPool}`);
+            txHash = await withdrawFromMorphoBlue(selectedPool, amount);
+          } else {
+            // Default withdrawal logic for other protocols
+            console.log(`Withdrawing ${amount} ${toToken} from vault`);
+            txHash = await withdraw(toToken, amount);
+          }
         } else {
-          txHash = await withdrawFromMorphoBlue(selectedPool, amount); // Default to Morpho for demo
+          // If no pool details, use generic withdrawal
+          console.log(`Withdrawing ${amount} ${toToken} from vault`);
+          txHash = await withdraw(toToken, amount);
         }
       } else if (interactionMode === 'swap') {
         if (useMultihop) {
           // Multi-hop swap
+          console.log(`Swapping ${amount} ${fromToken} to ${toToken} via ${intermediateToken}`);
           const path = [fromToken, intermediateToken, toToken];
           const fees = [fee1, fee2];
           txHash = await swapTokensMultihop(path, fees, amount);
         } else {
           // Direct swap
+          console.log(`Swapping ${amount} ${fromToken} to ${toToken}`);
           txHash = await swapTokens(fromToken, toToken, amount);
         }
       }
       
+      // Success - clear form and set tx hash
       setTransactionHash(txHash);
       setAmount('');
     } catch (error) {
