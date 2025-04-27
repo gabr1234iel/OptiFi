@@ -82,6 +82,7 @@ export interface AdminContextType {
   isLoading: boolean;
   statusMessage: string;
   isError: boolean;
+  ADAPTER_ADDRESSES: Record<string, string>; // Added this property
   setStatusMessage: (message: string, isError: boolean) => void;
   refreshData: () => Promise<void>;
 }

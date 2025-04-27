@@ -10,7 +10,6 @@ const FeeTiersTab: React.FC = () => {
           Set the default fee tiers for token swaps. This affects the liquidity pools used on Uniswap.
         </p>
       
-        
         <SetFeeTierForm />
       </div>
     </div>

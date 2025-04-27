@@ -1,6 +1,7 @@
 import React from 'react';
 import AdapterTable from './AdapterTable';
 import ChangeAdapterForm from './ChangeAdapterForm';
+import AdapterConfiguration from './AdapterConfiguration';
 
 import { useAdmin } from '../../../contexts/AdminContext';
 
@@ -16,6 +17,8 @@ const AdaptersTab: React.FC = () => {
         </p>
         
         <AdapterTable tokens={tokens} adapters={adapters} />
+        
+        <AdapterConfiguration />
         
         <ChangeAdapterForm />
       </div>

@@ -64,6 +64,7 @@ const AdminContext = createContext<AdminContextType>({
   isLoading: false,
   statusMessage: '',
   isError: false,
+  ADAPTER_ADDRESSES: ADAPTER_ADDRESSES, // Added this to the context
   setStatusMessage: () => {},
   refreshData: async () => {},
 });
@@ -300,6 +301,7 @@ export function AdminProvider({ children }: AdminProviderProps) {
     isLoading,
     statusMessage,
     isError,
+    ADAPTER_ADDRESSES, 
     setStatusMessage: handleSetStatusMessage,
     refreshData,
   };

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TokenInfo, AdapterMap } from '../../../types/admin';
 import { useAdmin } from '../../../contexts/AdminContext';
+import { TOKEN_ADAPTER_COMPATIBILITY, PROTOCOL_DISPLAY_NAMES } from '../../../constants/TokenAdapterMap';
 
 interface AdapterTableProps {
   tokens: TokenInfo[];
@@ -9,6 +10,8 @@ interface AdapterTableProps {
 
 const AdapterTable: React.FC<AdapterTableProps> = ({ tokens, adapters }) => {
   const { protocols, setStatusMessage } = useAdmin();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterProtocol, setFilterProtocol] = useState<string | null>(null);
   
   const handleCopyAddress = (address: string) => {
     navigator.clipboard.writeText(address)
@@ -21,29 +24,101 @@ const AdapterTable: React.FC<AdapterTableProps> = ({ tokens, adapters }) => {
       });
   };
   
+  // Get a list of all protocols used in adapters
+  const getUsedProtocols = () => {
+    const protocolsInUse = new Set<string>();
+    
+    tokens.forEach(token => {
+      const protocol = adapters[`${token.symbol}_PROTOCOL`];
+      if (protocol) {
+        protocolsInUse.add(protocol);
+      }
+    });
+    
+    return Array.from(protocolsInUse);
+  };
+  
+  // Filter tokens based on search and protocol filter
+  const filteredTokens = tokens.filter(token => {
+    const matchesSearch = token.symbol.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (!filterProtocol) {
+      return matchesSearch;
+    }
+    
+    const tokenProtocol = adapters[`${token.symbol}_PROTOCOL`];
+    return matchesSearch && tokenProtocol === filterProtocol;
+  });
+  
+  // Get compatibility status for each token/protocol
+  const isCompatible = (token: string, protocol: string) => {
+    return TOKEN_ADAPTER_COMPATIBILITY[token]?.includes(protocol as any) || false;
+  };
+  
+  // Get protocol display name
+  const getProtocolDisplayName = (protocolKey: string) => {
+    return PROTOCOL_DISPLAY_NAMES[protocolKey as keyof typeof PROTOCOL_DISPLAY_NAMES] || protocolKey;
+  };
+  
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
       <h3 className="text-lg font-semibold mb-4 text-gray-800">Current Adapters</h3>
+      
+      {/* Filters */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-grow">
+          <input
+            type="text"
+            placeholder="Search tokens..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md text-gray-500"
+          />
+        </div>
+        
+        <div className="w-full md:w-auto">
+          <select
+            value={filterProtocol || ''}
+            onChange={(e) => setFilterProtocol(e.target.value || null)}
+            className="w-full p-2 border border-gray-300 rounded-md text-gray-500"
+          >
+            <option value="">All Protocols</option>
+            {getUsedProtocols().map(protocol => (
+              <option key={protocol} value={protocol}>
+                {getProtocolDisplayName(protocol)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
-          <thead>
-            <tr className="bg-gray-50">
+          <thead className="bg-gray-50">
+            <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Token</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Adapter</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Protocol</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Compatible With</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {tokens.map((token) => {
+            {filteredTokens.map((token) => {
               const adapterAddress = adapters[token.symbol] || '';
               const protocol = adapters[`${token.symbol}_PROTOCOL`] || '';
-              const protocolDisplay = protocols.find(p => p.name === protocol)?.displayName || 'None';
+              const protocolDisplay = protocol 
+                ? getProtocolDisplayName(protocol)
+                : 'None';
+              
+              const compatibleProtocols = TOKEN_ADAPTER_COMPATIBILITY[token.symbol] || [];
               
               return (
                 <tr key={token.symbol} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {token.symbol}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className="text-sm font-medium text-gray-900">{token.symbol}</div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {adapterAddress ? (
@@ -78,27 +153,50 @@ const AdapterTable: React.FC<AdapterTableProps> = ({ tokens, adapters }) => {
                       </span>
                     )}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <div className="flex flex-wrap gap-1">
+                      {compatibleProtocols.length > 0 ? (
+                        compatibleProtocols.map((compatibleProtocol) => (
+                          <span 
+                            key={compatibleProtocol}
+                            className={`text-xs px-2 py-1 rounded ${
+                              protocol === compatibleProtocol
+                                ? 'bg-green-100 text-green-800 border border-green-300'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}
+                            title={protocol === compatibleProtocol ? 'Currently active' : 'Compatible option'}
+                          >
+                            {getProtocolDisplayName(compatibleProtocol)}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-gray-500">No defined compatibilities</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <a
-                      href={`https://etherscan.io/address/${token.address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 mr-3"
-                      title="View token on Etherscan"
-                    >
-                      Token
-                    </a>
-                    {adapterAddress && (
+                    <div className="flex space-x-2">
                       <a
-                        href={`https://etherscan.io/address/${adapterAddress}`}
+                        href={`https://etherscan.io/address/${token.address}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:text-blue-800"
-                        title="View adapter on Etherscan"
+                        title="View token on Etherscan"
                       >
-                        Adapter
+                        <span className="px-2 py-1 bg-blue-50 rounded-md text-xs">Token</span>
                       </a>
-                    )}
+                      {adapterAddress && (
+                        <a
+                          href={`https://etherscan.io/address/${adapterAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800"
+                          title="View adapter on Etherscan"
+                        >
+                          <span className="px-2 py-1 bg-blue-50 rounded-md text-xs">Adapter</span>
+                        </a>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -106,6 +204,12 @@ const AdapterTable: React.FC<AdapterTableProps> = ({ tokens, adapters }) => {
           </tbody>
         </table>
       </div>
+      
+      {filteredTokens.length === 0 && (
+        <div className="text-center py-4 text-gray-500">
+          No tokens found matching your filters.
+        </div>
+      )}
     </div>
   );
 };

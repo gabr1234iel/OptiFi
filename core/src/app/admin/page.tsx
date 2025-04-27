@@ -1,11 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import Header from '../../components/Header';
-import StatusMessage from '../../components/admin/StatusMessage';
-import TabNavigation from '../../components/admin/TabNavigation';
-import PoolsTab from '../../components/admin/pools/PoolsTab';
-import AdaptersTab from '../../components/admin/adapters/AdaptersTab';
-// Import other tabs when they're ready
+import Header from '@/components/Header';
+import StatusMessage from '@/components/admin/StatusMessage';
+import TabNavigation from '@/components/admin/TabNavigation';
+import PoolsTab from '@/components/admin/pools/PoolsTab';
+import AdaptersTab from '@/components/admin/adapters/AdaptersTab';
+import FeeTiersTab from '@/components/admin/fees/FeeTierTabs';
+import SystemStatusTab from '@/components/admin/system/SystemStatusTabs';
 import { useWallet } from '../../hooks/useWallet';
 import { AdminProvider, useAdmin } from '../../contexts/AdminContext';
 
@@ -96,8 +97,8 @@ const AdminDashboardContent: React.FC = () => {
             {/* Tab Content */}
             {activeTab === 'pools' && <PoolsTab />}
             {activeTab === 'adapters' && <AdaptersTab />}
-            {activeTab === 'fees' && <div>Fee Tiers Tab - Coming Soon</div>}
-            {activeTab === 'system' && <div>System Status Tab - Coming Soon</div>}
+            {activeTab === 'fees' && <FeeTiersTab />}
+            {activeTab === 'system' && <SystemStatusTab />}
           </>
         )}
       </main>

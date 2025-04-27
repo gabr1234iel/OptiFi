@@ -7,7 +7,7 @@ import UniversalVaultABI from '../constants/UniversalVaultABI.json';
 const UNIVERSAL_VAULT_ADDRESS = "0x488b54Cf1b3F65Fa0cf76889ccb78afD2a054f4E";
 
 // Adapter addresses from deployment
-const ADAPTER_ADDRESSES = {
+export const ADAPTER_ADDRESSES = {
   AAVE_V2: "0x31C89d6188b169aDCC7f6002d9cBAB605B67fd6d",
   AAVE_V3: "0x656eef60fFA6c3b984E199d29443b885c51A6200",
   COMPOUND_V2: "0x94a4d8C45FBaC4cCDD0afAebD0C006d97cfA8b6c",
@@ -33,7 +33,7 @@ export const PROTOCOL_ENUM = {
 };
 
 // Token addresses
-const TOKEN_ADDRESSES = {
+export const TOKEN_ADDRESSES = {
   // Stablecoins
   USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
   USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
@@ -61,7 +61,7 @@ const TOKEN_ADDRESSES = {
 };
 
 // Define standard pool information mapping from the deployment
-const POOL_INFO = {
+export const POOL_INFO = {
   // Morpho pools
   STEAKUSDC: { 
     protocol: PROTOCOL_ENUM.MORPHO_BLUE, 
@@ -177,7 +177,7 @@ export const getTokenSymbol = (address: string): string => {
 };
 
 // ERC20 ABI - minimal for approvals and balances
-const ERC20ABI = [
+export const ERC20ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)",
@@ -186,7 +186,7 @@ const ERC20ABI = [
 ];
 
 // Protocol adapter ABI (just what we need)
-const ADAPTER_ABI = [
+export const ADAPTER_ABI = [
   "function getAPY(address underlyingToken) view returns (uint256)",
   "function getBalance(address underlyingToken) view returns (uint256)"
 ];
@@ -898,5 +898,20 @@ export const hasActiveAdapter = async (token: string): Promise<boolean> => {
   } catch (error) {
     console.error('Error checking adapter:', error);
     return false;
+  }
+};
+
+// Get vault balance for a token
+export const getTotalBalance = async (tokenAddress: string): Promise<ethers.BigNumber> => {
+  const vaultContract = getUniversalVaultContract();
+  if (!vaultContract) throw new Error('Vault contract not available');
+  
+  try {
+    // This matches the function in the contract
+    return await vaultContract.vaultBalances(tokenAddress);
+  } catch (error) {
+    console.error('Error getting vault balance:', error);
+    // Return zero balance as fallback
+    return ethers.BigNumber.from(0);
   }
 };

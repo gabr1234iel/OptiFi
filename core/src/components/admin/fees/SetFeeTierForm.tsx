@@ -105,30 +105,33 @@ const SetFeeTierForm: React.FC = () => {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Fee Tier (in basis points)
-            </label>
-            <input
-                type="number"
-                value={feeTier}
-                onChange={(e) => setFeeTier(parseInt(e.target.value))}
-                className="w-full p-2 border border-gray-300 rounded-md text-gray-700"
-                required
-                disabled={isSubmitting}
-            />
+          </label>
+          <input
+            type="number"
+            value={feeTier}
+            onChange={(e) => setFeeTier(parseInt(e.target.value))}
+            className="w-full p-2 border border-gray-300 rounded-md text-gray-700"
+            required
+            disabled={isSubmitting}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Common values: 100 (0.01%), 500 (0.05%), 3000 (0.3%), 10000 (1%)
+          </p>
         </div>
 
         <button
           type="submit"
-          className={`w-full p-2 text-white bg-blue-600 rounded-md ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`w-full p-2 text-white bg-blue-600 rounded-md ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
           disabled={isSubmitting}
         >
-            {isSubmitting ? 'Setting...' : 'Set Fee Tier'}
+          {isSubmitting ? 'Setting...' : 'Set Fee Tier'}
         </button>
-        </form>
-        <div className="mt-4 text-sm text-gray-600">
-            Note: Ensure that the selected tokens are different and valid.
-        </div>
-        </div>
-    );
-}
+      </form>
+      <div className="mt-4 text-sm text-gray-600">
+        Note: Ensure that the selected tokens are different and valid.
+      </div>
+    </div>
+  );
+};
 
 export default SetFeeTierForm;
